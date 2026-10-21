@@ -13,12 +13,12 @@ Sources: `Synopsis1.pdf` (16 pages) and `Emergency Coordination System PPT.pdf` 
 
 ## Interpretation, assumptions and unresolved details
 
-- “Real-time” means immediate updates within this app instance and persistence on device. Cross-device synchronization is not specified.
+- The original academic documents do not define cross-device synchronization. The later user-provided evolution brief adds a shared backend; the current portal implementation polls the API every 12 seconds.
 - This prototype has coordinator and responder workspaces. A role switch is a demonstration selector, not authentication or security; authentication is unspecified.
-- Coordinates are manually entered or selected from built-in simulated locations. Live GPS, map tiles, geocoding, Firebase and agency interfaces are excluded by the PPT prototype boundary or lack of service/credential requirements.
+- The original training workspace uses simulated coordinates. The later user request adds foreground device GPS for authenticated SOS and responder location sharing, with manual SOS fallback. Maps, geocoding, background tracking, and agency interfaces remain absent.
 - Priority is transparent decision support from type, severity and urgency. A human coordinator confirms dispatch; no autonomous life-critical decision is made.
 - Sample records and resource categories are marked simulated because no production catalogue is provided.
-- One device stores one workspace. Each responder can hold one active incident; assigned responders are unavailable until release. Skill match is required. No eligible responder leaves an incident queued. Recommendations rank by straight-line proximity then workload; coordinator confirms. Closure releases linked resources.
-- Neither source specifies numeric priority thresholds, required fields, quantities, authentication, database platform, map provider, retention, or report formats; minimal prototype rules are documented in `docs/audit/architecture.md`.
-- The Synopsis emphasizes a responder mobile interface and monitoring/reporting records; the PPT additionally defines an Android-only simulated prototype without live GPS or agency integration. One Flutter Android app supplies coordinator and responder workspaces and keeps data local.
+- The original training workspace remains one-device and local. Shared portals store records in the API database. A responder can hold one active assignment; assignment/resource conflicts are guarded by database constraints. Fresh accurate locations can inform straight-line recommendations; an administrator confirms each assignment. Closure releases linked resources.
+- Neither academic source specifies numeric priority thresholds, retention, map provider, or report formats. The evolution brief requests authentication and persistent shared data; implementation choices and remaining operational decisions are documented in `docs/audit/architecture.md`.
+- The Synopsis emphasizes a responder interface and monitoring/reporting records; the PPT describes an Android simulated prototype without live GPS or agency integration. The later user evolution request expands this to a shared role-based platform. Original training and new shared portals are kept separate.
 - The pasted master prompt terminates at “Create and maintain the following documentation as app/”; the rest of its list is absent. This project provides standard requirements, architecture, traceability, verification, setup and handover documents.

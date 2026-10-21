@@ -23,4 +23,19 @@
 | SEC-001 | No hardcoded secrets or credential-dependent integrations. | Master prompt; prototype boundary | No external service calls | Verified |
 | UI-001 | Provide validation, feedback, useful empty states and navigable controls. | Master prompt; implied workflows | Flutter UI | Core form/navigation/control flows verified; assistive-technology audit remains unevaluated |
 
+## Shared platform evolution requirements
+
+These additional user-requested requirements extend the original academic prototype. They are not inferred from the attached academic documents.
+
+| ID | Requirement / acceptance criterion | Implementation | Status |
+|---|---|---|---|
+| EVO-001 | Separate Admin, User, and Responder portals with server-enforced roles. | Flutter portal chooser; API role dependencies and scoped queries. | Implemented; API access isolation tested. |
+| EVO-002 | Authenticated multi-user accounts and secure sessions. | Argon2 password hashes, signed expiring tokens, revocable session records, first-admin CLI. | Implemented; login/logout/session tests. Account recovery and rate limits remain outstanding. |
+| EVO-003 | Persist shared incidents, assignments, resources, updates, and audit records. | SQLAlchemy schema, Alembic migration, SQLite development/test, PostgreSQL Compose configuration. | SQLite migration and workflow tested; PostgreSQL not verified. |
+| EVO-004 | User SOS submission with current location or manual fallback and duplicate protection. | Foreground geolocation client, fallback form, stale/future fix validation, idempotency key. | API and local phone flow exercised; multiple Android permission/device cases remain unverified. |
+| EVO-005 | Admin-managed assignment, reassignment, resource allocation, and operational changes. | Transactional endpoints, conflict constraints, responder recommendations, admin portal. | API workflow and conflicts tested. No live routing or external dispatch. |
+| EVO-006 | Responder task updates, communication, and location sharing. | Scoped task portal, ordered status workflow, updates, one-time foreground location. | Implemented; backend workflow tested. Broad physical-device role walkthrough remains unverified. |
+| EVO-007 | Synchronize visible changes across clients. | Authenticated update polling at 12-second intervals. | Implemented. No WebSocket/push service. |
+| EVO-008 | Production deployment to a shared secured service. | Deployment configuration and handover documentation only. | Not complete: no hosted service, TLS endpoint, operational credentials, or PostgreSQL verification. |
+
 Test evidence and remaining verification limits are recorded in `docs/audit/test-results.md`.

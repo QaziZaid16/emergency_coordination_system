@@ -1,19 +1,25 @@
 # Emergency Coordination System
 
-A Flutter and Dart Android training prototype for coordinating simulated emergency incidents, responders, and resources. It includes a coordinator console and a responder workspace on one device, local operation records, priority recommendations, incident status tracking, and reports.
+A Flutter and Dart Android app with three role-specific portals—Admin, User, and Responder—connected to a shared FastAPI service, plus the original isolated local training workspace. The service owns authenticated multi-user incidents, role access, assignments, resources, status history, and audit records. Backend and mobile clients are included; this repository does not include a hosted service or agency integration.
 
-> **Training prototype only. Do not use this app to report or coordinate a real emergency.** It does not contact emergency services, dispatch real responders, share live location, authenticate users, or connect to an agency system. For a real emergency, use the emergency number and procedures applicable to your location.
+> **Development platform only. Do not use this app to report or coordinate a real emergency.** A configured instance can capture and share device location with its coordination backend, but it does not contact emergency services or dispatch an ambulance, fire service, or police. Priority is a prototype heuristic, not a validated triage policy. For a real emergency, use the emergency number and procedures applicable to your location.
 
 ## Contents
 
 - [Install the demo app](#install-the-demo-app)
 - [First launch](#first-launch)
+- [Configure the shared portals](#configure-the-shared-portals)
+- [Use the Admin Portal](#use-the-admin-portal)
+- [Use the User Portal](#use-the-user-portal)
+- [Use the Responder Portal](#use-the-responder-portal)
+- [Use the isolated training workspace](#use-the-isolated-training-workspace)
 - [Use the coordinator console](#use-the-coordinator-console)
 - [Use the responder workspace](#use-the-responder-workspace)
 - [Understand priority and recommendations](#understand-priority-and-recommendations)
 - [Saved data and reset](#saved-data-and-reset)
 - [Run from source](#run-from-source)
 - [Build a new Android APK](#build-a-new-android-apk)
+- [Run the backend tests](#run-the-backend-tests)
 - [Troubleshooting](#troubleshooting)
 - [Project layout and documentation](#project-layout-and-documentation)
 - [Known limitations](#known-limitations)
@@ -47,21 +53,21 @@ The repository includes a ready-to-install APK at [`release/emergency-coordinati
    adb -s <serial> shell am start -n edu.cgc.university.emergency_coordination_system/.MainActivity
    ```
 
-The APK was installed and launched on a physical Android CPH2691 during verification. It is a demonstration release signed with the generated debug key, not a Play Store or production-signed build. SHA-256:
+The current repository APK is a local demonstration release signed with the generated debug key, not a Play Store or production-signed build. Shared portals require building with the deployed API's HTTPS URL. SHA-256:
 
 ```text
-235657e11b6e84ed4b377ac803fda0097cca2552c7be074bf13632275744040e
+317aa90a47ad819e08e2770f11a45cc55fb493277526964582721f5558eb126b
 ```
 
 To verify the downloaded APK, run `shasum -a 256 release/emergency-coordination-system-demo.apk` on macOS or `sha256sum release/emergency-coordination-system-demo.apk` on Linux.
 
 ## First launch
 
-The app opens to **Operations overview**. On the first launch it creates a simulated training workspace containing one sample medical incident, four responder profiles, and four resource records. All seeded sample content is for demonstration; it is not a real emergency report or live resource inventory.
+The app opens to a portal chooser. Choose **Admin Portal**, **User Portal**, or **Responder Portal** to sign in to the shared backend. New public registrations can create only user accounts. An administrator provisions the first admin with the backend CLI and creates responder accounts; changing the portal selection cannot elevate an account's stored role. **Open isolated training workspace** enters the original local-only simulator, whose sample records are stored separately on that device and are never imported into the shared database.
 
 The custom launcher mark is a response hub: a shield with a pulse line connected to four team nodes. Android uses adaptive icons on supported launchers, legacy density icons on older launchers, and a monochrome layer for themed icons on newer Android versions. The editable vector source is [`assets/brand/emergency-coordination-icon.svg`](assets/brand/emergency-coordination-icon.svg); matching PNG icons are used for the Flutter web/PWA assets.
 
-The app has five tabs in the bottom navigation:
+The isolated training workspace has five tabs in the bottom navigation:
 
 | Tab | What it shows |
 |---|---|
@@ -71,7 +77,7 @@ The app has five tabs in the bottom navigation:
 | **Resources** | Sample vehicles/resources, their type, and whether they are available or allocated. |
 | **Reports** | Local case totals, resolution summary, resolved incident history, and recent activity records. |
 
-### Interface and interaction notes
+### Training workspace interface notes
 
 - The overview puts the active workload first, then shows critical cases, assigned cases, and ready responders as separate scan-friendly counts. Select an incident card to go straight to its details.
 - The incident queue combines a text search for type, location, or description with status filters. Use the clear button to reset the search. Select a case to review its priority explanation, assignment, communication, and lifecycle actions.
@@ -80,7 +86,61 @@ The app has five tabs in the bottom navigation:
 - Content pages scroll vertically on smaller screens. Use the five-item bottom bar to move between Overview, Incidents, Responders, Resources, and Reports; use the top-right workspace menu to enter the separate responder demo view.
 - Empty queues and reports explain that there is no matching content yet. Search and list filters can be cleared or changed without modifying saved records.
 
-Tap the profile icon in the upper-right corner to choose **Coordinator console** (returns to Overview) or open **Responder workspace**. The profile menu is a demonstration shortcut, not a sign-in or a security boundary.
+Within the training workspace, the profile icon switches between the simulated **Coordinator console** and **Responder workspace**. That training-only menu is not a sign-in or a security boundary.
+
+## Configure the shared portals
+
+The repository contains the actual API implementation in [`backend/`](backend/README.md), its SQLAlchemy schema and initial Alembic migration, SQLite development support, PostgreSQL Compose configuration, secure administrator provisioning, and API tests. There is no hosted API URL, PostgreSQL service, TLS endpoint, push provider, or emergency-agency integration checked into this repository.
+
+To run a local backend, follow [backend/README.md](backend/README.md): create a Python environment, set a private `JWT_SECRET`, apply `alembic upgrade head`, provision the first administrator at a password prompt, then run Uvicorn. Docker Compose can run PostgreSQL locally when Docker is installed. PostgreSQL and Compose could not be exercised in the implementation environment; the tested backend uses in-memory SQLite.
+
+The mobile client compiles its API host into the app. For local USB-device development, use `adb reverse tcp:8000 tcp:8000` and run Flutter with `--dart-define=API_BASE_URL=http://127.0.0.1:8000`; debug builds permit this loopback HTTP only. Release Android builds reject cleartext traffic and require an HTTPS endpoint:
+
+```sh
+flutter build apk --release --dart-define=API_BASE_URL=https://your-deployed-api.example
+```
+
+If no API host is supplied, portal login shows that it is not configured. The app still offers the isolated training workspace. Flutter stores bearer tokens in platform secure storage; the backend checks role and session validity on protected requests. Clients refresh backend data every 12 seconds and show errors when they cannot synchronize.
+
+### Initial account setup
+
+1. A server operator applies database migrations and runs `python -m app.provision_admin --email ... --name ...`. The password is entered twice at a hidden terminal prompt; there is no built-in default administrator.
+2. The administrator signs in through **Admin Portal** and creates responder accounts, including lower-case service capabilities such as `medical`, `fire`, `rescue`, `security`, or `other`.
+3. People may create user accounts from **User Portal**. Public registration cannot create an admin or responder.
+4. Use separate accounts and sessions to test each role. The app's role chooser is only a login entry point; the server makes every authorization decision.
+
+## Use the Admin Portal
+
+- **Dashboard** shows total, active, unassigned, assigned, in-progress, and resolved reports; responder availability; and resource allocation from the backend.
+- **Incidents** supports search by reference, type, description, location, priority, status, or responder, plus All, Active, Unassigned, and Resolved filters. Cards show priority rationale, severity, urgency, report time, reported location, and coordinates/accuracy when available.
+- Select **Assign** or **Reassign**, review eligible available responders, and select one. Distance appears only when the user's and responder's GPS readings are no older than 15 minutes and each has recorded accuracy of 100 m or better. Otherwise distance is shown as unavailable; the admin still chooses the responder.
+- An optional available resource can be allocated with an assignment. The backend checks current availability and serializes assignment/resource changes in a database transaction. Database constraints reject conflicting active assignments.
+- **Responders** can be created, have capabilities edited, and be marked available/unavailable. **Users** can be deactivated/reactivated; deactivation revokes their active sessions. **Resources** can be added, edited, enabled, or disabled. **Audit** shows administrative and operational changes.
+- Resolve and cancel actions require confirmation. Both close the record and release the current responder/resource. This is an internal platform update; no external agency is notified.
+
+## Use the User Portal
+
+1. Choose **User Portal**. Register a user account or sign in. The server issues the role-bound session.
+2. Tap **SOS · Request help**. The app requests device location permission and attempts a fresh GPS fix with a 12-second timeout. It shows the timestamp and accuracy.
+3. If permission is denied, location services are off, or a current fix is unavailable, enter an address, area, or landmark manually. The app never substitutes the training sample coordinates.
+4. Select Ambulance / Medical, Fire and Rescue, Police / Security, or Other Emergency. Add a short description, review the confirmation, then submit.
+5. The service records the request with an idempotency key. Repeated taps/retries of the same form return the same incident instead of creating another. The app displays a reference and the current system status. **Received by this coordination system does not mean an emergency service has been contacted or a responder dispatched.**
+6. **My requests** refreshes every 12 seconds and displays assignment and response status changes for only the signed-in user's reports. Tap a report to see its status history.
+
+GPS readings older than 15 minutes are rejected by the service. If submission fails, the app displays a connection error and does not show a success message. Location data is sensitive: production use requires a reviewed legal basis, retention limit, access policy, protected TLS deployment, and incident response plan.
+
+## Use the Responder Portal
+
+- Sign in with an administrator-created responder account. The server returns only current assignments and that responder's permitted completed history.
+- Open a task to review type, description, priority/rationale, report time, reported location, and coordinates if provided.
+- Advance one controlled step at a time: **Assigned → Accepted → En Route → On Scene → Resolved**. The server rejects invalid order or attempts to update another responder's task.
+- **Add update** records a message visible to the assigned user and admins. **Updates** shows the task history.
+- **Share current location once** requests foreground GPS permission, then sends one timestamped, accuracy-labelled point. It does not track in the background. The point is considered for recommendation ranking only while it remains fresh and accurate.
+- If an administrator reassigns a task, the previous responder immediately loses write access. Resolving a task releases its associated resource and makes the responder available again.
+
+## Use the isolated training workspace
+
+Open **Isolated training workspace** on the portal chooser. The existing coordinator and responder demonstration workflows below continue to use a device-local JSON file, seeded sample records, simulated coordinates, and a role selector that is not authentication. Data entered here never syncs to the backend or transfers to another device.
 
 ## Use the coordinator console
 
@@ -179,11 +239,10 @@ The built-in location choices have simulated coordinates around Mohali. **Landma
 
 ## Saved data and reset
 
-- On Android, the workspace is stored as `emergency_workspace.json` in the app's private files directory. No broad storage permission is requested.
-- Incidents, assignments, responder availability, resources, messages, and activity remain after closing and reopening the app.
-- Data is not backed up or synchronized to a server or another device.
-- To clear the training workspace and restore the initial sample data, open Android **Settings → Apps → Emergency Coordination → Storage → Clear data**. Names in Android Settings may vary by device. Clearing app data permanently removes the records saved by this installation.
-- Uninstalling the app also removes its private workspace data. Do not use the sample workspace for real or irreplaceable records.
+- **Training Workspace:** stored as `emergency_workspace.json` in the Android app's private files directory. This contains only the simulator's local records.
+- **Shared portals:** incidents, accounts, assignments, resources, messages, and audit history live in the configured server database. Clearing the app does not remove those shared server records.
+- The app stores the bearer token using platform secure storage. Sign out to revoke that server session. Clearing app data removes local training data and the locally stored session, but leaves server records intact.
+- The sample workspace is never automatically migrated to the backend. Do not upload sample cases/coordinates as real operations.
 
 ## Run from source
 
@@ -193,6 +252,7 @@ The built-in location choices have simulated coordinates around Mohali. **Landma
 - Android Studio/Android SDK and Android build tools.
 - Android phone or emulator compatible with the installed Flutter SDK.
 - For a physical phone: Android Platform Tools (`adb`) and USB debugging enabled.
+- For authenticated portals: Python 3.12+ for local FastAPI, or a deployed HTTPS backend; see [`backend/README.md`](backend/README.md).
 
 ### Get the source
 
@@ -217,6 +277,8 @@ rsync -a \
   --exclude='build/' \
   --exclude='.dart_tool/' \
   --exclude='android/.gradle/' \
+  --exclude='backend/.venv/' \
+  --exclude='backend/__pycache__/' \
   "$project_dir/" "$working_dir/"
 cd "$working_dir"
 ```
@@ -235,6 +297,8 @@ Choose the Android device ID shown by `flutter devices` and start the debug app:
 flutter run -d <android-device-id>
 ```
 
+To use a local API from the connected phone, start Uvicorn on port 8000, run `adb reverse tcp:8000 tcp:8000`, then start Flutter with `--dart-define=API_BASE_URL=http://127.0.0.1:8000`. For a deployed service, pass its HTTPS base URL at build/run time. The portal login pages explain when the URL is missing.
+
 To stop the running debug session, press `q` in the terminal where `flutter run` is active, or press `Ctrl+C`.
 
 **Seagate/exFAT checkout:** this project is stored on an exFAT external volume, where macOS AppleDouble files can interfere with Android Gradle builds. For the checkout on that drive, stage the project to APFS before `flutter run` or `flutter build`; use the staging procedure in [Build a new Android APK](#build-a-new-android-apk). A clone on a normal APFS volume can be run directly.
@@ -243,10 +307,12 @@ To stop the running debug session, press `q` in the terminal where `flutter run`
 
 ```sh
 flutter analyze
-flutter test test/dispatch_rules_test.dart test/operations_store_test.dart test/widget_test.dart
+flutter test
 ```
 
-The targeted test command runs the dispatch rules, local store behavior, and widget test files. Explicit file names are used because macOS AppleDouble `._*` metadata files on the exFAT source volume can confuse default Flutter test discovery.
+This runs the dispatch rules, local store behavior, widget tests, and role-login configuration check. Run it from APFS staging because macOS AppleDouble `._*` metadata files on the exFAT source volume can confuse Flutter test discovery.
+
+Backend tests run separately from `backend/` with `python -m pytest -q`. They use in-memory SQLite; API code and migration files are run from an APFS staging copy on this Mac because the exFAT checkout contains AppleDouble metadata.
 
 ## Build a new Android APK
 
@@ -256,19 +322,23 @@ This project is stored on an exFAT Seagate volume. macOS AppleDouble metadata on
 project_dir="$PWD"
 build_dir="/private/tmp/ecs_android_build"
 mkdir -p "$build_dir"
-rsync -a \\
-  --exclude='.git/' \\
-  --exclude='._*' \\
-  --exclude='build/' \\
-  --exclude='.dart_tool/' \\
-  --exclude='android/.gradle/' \\
+rsync -a \
+  --exclude='.git/' \
+  --exclude='._*' \
+  --exclude='build/' \
+  --exclude='.dart_tool/' \
+  --exclude='android/.gradle/' \
+  --exclude='backend/.venv/' \
+  --exclude='backend/__pycache__/' \
   "$project_dir/" "$build_dir/"
 cd "$build_dir"
 flutter pub get
 flutter analyze
-flutter test test/dispatch_rules_test.dart test/operations_store_test.dart test/widget_test.dart
-flutter build apk --release
-cp build/app/outputs/flutter-apk/app-release.apk \\
+flutter test
+# Set API_BASE_URL to an HTTPS deployment URL for authenticated portals.
+API_BASE_URL="${API_BASE_URL:-}"
+flutter build apk --release --dart-define=API_BASE_URL="$API_BASE_URL"
+cp build/app/outputs/flutter-apk/app-release.apk \
   "$project_dir/release/emergency-coordination-system-demo.apk"
 ```
 
@@ -278,7 +348,7 @@ The APK output is `build/app/outputs/flutter-apk/app-release.apk` inside the sta
 shasum -a 256 "$project_dir/release/emergency-coordination-system-demo.apk"
 ```
 
-The current release variant signs with the generated debug key. It is suitable for local classroom demonstration only. A distributable production release requires a protected signing key, a production security and privacy design, and operational validation; those are not part of this prototype.
+The release variant signs with the generated debug key. It is suitable for local development/demo only. Use an HTTPS API URL to enable server-backed portals in a build; leaving it blank disables authenticated API calls but keeps the isolated training workspace available. A distributable production release requires a protected signing key, a deployed and secured backend, security/privacy review, and operational validation.
 
 ## Troubleshooting
 
@@ -312,7 +382,11 @@ Build from the APFS staging directory shown above. Do not delete broad directori
 
 ### The project fails to start because Android storage is unavailable
 
-The Android app uses a method channel in `MainActivity.kt` to obtain its app-private files directory. Run the Android app through Flutter or install the included Android APK; a web build does not provide this Android storage channel.
+The Android app uses a method channel in `MainActivity.kt` to open the optional device-local training workspace. Run the Android app through Flutter or install the included Android APK.
+
+### A shared portal says the service URL is missing or unavailable
+
+Build/run with `--dart-define=API_BASE_URL=...`. For local USB development, start the local backend, use `adb reverse tcp:8000 tcp:8000`, and set `http://127.0.0.1:8000` in a debug build. Release builds require HTTPS. Sign out/in after the access token expires; the service rejects expired or revoked sessions.
 
 ### A changed APK will not install over an existing one
 
@@ -322,11 +396,13 @@ The included local demo uses a debug signing key. Android permits in-place updat
 
 ```text
 lib/
-  data/                 Local persistence and operational workflows
+  data/                 Training JSON store and shared API client
   domain/               Incident/responder models and dispatch rules
-  presentation/          Coordinator screens and responder workspace
+  presentation/          Admin, User, Responder portals and isolated training UI
+backend/                 FastAPI service, SQLAlchemy schema, migrations, tests
 android/                 Android host and app-private storage channel
-test/                    Dispatch, store/persistence, and widget tests
+test/                    Flutter dispatch, store, and role-login widget tests
+backend/tests/            API auth, ownership, assignment and lifecycle tests
 docs/requirements/       Source extraction and traceability matrix
 docs/audit/              Architecture, discovery, roadmap, verification
 release/                 Installable classroom-demonstration APK
@@ -340,12 +416,13 @@ Detailed records:
 - [`docs/audit/discovery.md`](docs/audit/discovery.md) — source inventory and target-directory decision.
 - [`docs/audit/test-results.md`](docs/audit/test-results.md) — executed checks, outcomes, evidence, and limits.
 - [`docs/audit/implementation-roadmap.md`](docs/audit/implementation-roadmap.md) — delivered prototype scope and deferred work.
+- [`backend/README.md`](backend/README.md) — API setup, roles, security, migrations, and local device integration.
 - [`SETUP.md`](SETUP.md) — condensed setup and handover procedure.
 
 ## Known limitations
 
-- Android academic prototype; the responder selector is not authentication or access control.
-- One device and one local JSON workspace; no cloud sync, backup, account system, or cross-device messaging.
-- Simulated responders, resources, and Mohali-area coordinates. No live GPS, map, geocoding, routing, traffic, push notification, call, or agency API.
-- Priority thresholds and recommendation ranking are assumptions documented for this prototype, not a substitute for approved dispatch policy.
-- The APK is demo-signed with a debug key. No production signing, hosting, security review, accessibility audit, or field validation has been performed.
+- No backend is hosted by this repository. Shared portals need an operator-provisioned service URL and database; PostgreSQL/Compose were not available for integration testing in this environment.
+- No map provider, geocoding/routing/traffic, push notification provider, phone call, or external ambulance/fire/police integration is configured. Clients use 12-second polling and one-time foreground responder location sharing.
+- The isolated training responder selector is not authentication. Its simulated responders, resource inventory, and Mohali-area coordinates remain separate from server data.
+- Priority and proximity rankings are prototype decision support, not approved dispatch/triage policies.
+- The APK is demo-signed with a debug key. No production signing, hosting, rate-limit gateway, security penetration review, backup/restore validation, accessibility audit, or field validation has been completed.

@@ -1,60 +1,103 @@
 # Setup and handover
 
-## Android development
+This is a development implementation with an Android Flutter client and FastAPI backend. Shared portals work only after configuring and running the backend. The local Training Workspace remains separate and available without a server.
 
-1. Install Flutter 3.47.7 (or a compatible later stable release), Android Studio with Android SDK/build tools, and an Android emulator or Android 8.0+ device.
-2. Open this directory in Android Studio or VS Code.
-3. Run `flutter pub get`.
-4. Confirm `flutter devices` lists an Android device.
-5. Run `flutter run -d <android-device-id>`.
+## Android client
 
-The app obtains the sandboxed Android files directory over a method channel in `MainActivity.kt`, then stores `emergency_workspace.json` there. It requests no location, contacts, network or broad file access permission. Android app data deletion resets the local workspace and its simulated seed records.
+1. Install Flutter 3.47.7/Dart 3.13.5 (or a compatible later stable SDK), Android Studio/Android SDK, and Platform Tools.
+2. On the phone, enable USB debugging and approve this computer. Confirm `flutter devices` lists the phone.
+3. Run `flutter pub get` and `flutter run -d <device-id>` to launch with the isolated training workspace available.
 
-## Checks
+To use the authenticated portals with a backend running on this development computer, first start the backend below, then:
+
+```sh
+adb reverse tcp:8000 tcp:8000
+flutter run -d <device-id> --dart-define=API_BASE_URL=http://127.0.0.1:8000
+```
+
+Android debug builds permit loopback HTTP for this local-only setup. Release builds disallow cleartext and require an HTTPS host:
+
+```sh
+flutter build apk --release --dart-define=API_BASE_URL=https://api.example.org
+```
+
+No production server URL is configured in this repository. If `API_BASE_URL` is empty, the portals state that sign-in is unavailable and local training remains usable.
+
+## Local API with SQLite
+
+Requirements: Python 3.12+. See [backend/README.md](backend/README.md) for PostgreSQL/Compose setup and API details.
+
+```sh
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+python -m pip install -r requirements-dev.txt
+cp .env.example .env
+```
+
+Set a fresh `JWT_SECRET` of at least 32 characters in `.env`. Keep `ENVIRONMENT=development` and the example SQLite URL. Apply the schema and provision the first administrator; the password is entered through a hidden terminal prompt, with no default credential:
+
+```sh
+alembic upgrade head
+python -m app.provision_admin --email admin@example.org --name 'Operations Admin'
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Open `http://127.0.0.1:8000/docs` for the development API reference. Public registration can create user accounts only. An admin creates responder accounts and their service capabilities. Use HTTPS and a secrets manager for any deployment; do not expose this local development server to the public Internet.
+
+## Tests and migration verification
+
+Flutter client:
 
 ```sh
 flutter analyze
-flutter test test/dispatch_rules_test.dart test/operations_store_test.dart test/widget_test.dart
+flutter test
 ```
 
-Name test files explicitly: macOS AppleDouble `._*.dart` metadata files on exFAT are not Dart sources but Flutter's default test discovery may attempt to parse them.
-
-## Install the included release APK
-
-Connect an Android device with USB debugging enabled, confirm `adb devices` lists it, then install and launch:
+Backend, from `backend/`:
 
 ```sh
-adb install -r release/emergency-coordination-system-demo.apk
-adb shell am start -n edu.cgc.university.emergency_coordination_system/.MainActivity
+python -m pytest -q
 ```
 
-The included APK was installed and launched on a physical Android CPH2691. SHA-256: `24ff2c9842fef6cef592c5c445a07d08467838fb0d5f77d91fb4d8dce7a08960`.
+Backend tests use in-memory SQLite. The initial Alembic migration has been applied against a clean SQLite database. The PostgreSQL Compose file is included but Docker/PostgreSQL were not available for verification in this development environment.
 
-## Build a new release APK for classroom demonstration
+## Build from the Seagate/exFAT checkout
 
-The Seagate volume is exFAT. Gradle writes intermediate Android resource directories there, and macOS AppleDouble metadata may be interpreted as resources. Stage the source to an APFS path, excluding generated metadata/build caches, then build:
+macOS AppleDouble metadata can interfere with Flutter Android builds on the Seagate drive. Use an APFS staging copy and exclude generated caches and the backend virtual environment:
 
 ```sh
 project_dir="$PWD"
 build_dir="/private/tmp/ecs_android_build"
 mkdir -p "$build_dir"
-rsync -a --exclude='._*' --exclude='build/' --exclude='.dart_tool/' --exclude='android/.gradle/' "$project_dir/" "$build_dir/"
+rsync -a \
+  --exclude='.git/' \
+  --exclude='._*' \
+  --exclude='build/' \
+  --exclude='.dart_tool/' \
+  --exclude='android/.gradle/' \
+  --exclude='backend/.venv/' \
+  --exclude='backend/__pycache__/' \
+  "$project_dir/" "$build_dir/"
 cd "$build_dir"
 flutter pub get
-flutter build apk --release
+flutter analyze
+flutter test
+flutter build apk --release --dart-define=API_BASE_URL="${API_BASE_URL:-}"
 cp build/app/outputs/flutter-apk/app-release.apk \
   "$project_dir/release/emergency-coordination-system-demo.apk"
+shasum -a 256 "$project_dir/release/emergency-coordination-system-demo.apk"
 ```
 
-APK output: `build/app/outputs/flutter-apk/app-release.apk`. The current generated release variant signs with the debug key. Do not distribute it as a production release. A production keystore, secure signing configuration, privacy/security design, service hosting and field validation are outside this academic prototype scope.
+The generated release is debug-signed for local demonstration. Production distribution requires protected signing, a deployed HTTPS service, and operational/privacy/security review.
 
-## Operating the prototype
+## Data boundaries
 
-- Register incidents in the Incidents tab. Enter type, description, location/landmark, severity and reported urgency. The priority and rule rationale update before registration.
-- Open a queued incident to review eligible responders ordered by straight-line distance and select Assign. A matching available unit is reserved when present.
-- Advance the incident Assigned → En route → Responding → Resolved. Resolution releases the responder and resource.
-- Use Responder workspace from the profile menu to select a simulated responder, read the assignment and update status or add an incident message.
-- Use Response teams to mark an unassigned responder off duty/available. Assigned responders cannot be taken off duty.
-- Resources and Reports show current allocation and local operation history.
+- The old coordinator/responder training app stores simulated data in Android's private `emergency_workspace.json` file.
+- Admin/User/Responder portal data resides only in the configured server database. The backend is authoritative; the client does not import training data.
+- Tokens are stored in platform secure storage, expire after the configured interval, and are revoked on logout. Clearing app data removes the local training file and stored token, not server-side records.
+- GPS is requested in foreground only. A user may manually enter a location if permission or GPS is unavailable. No live agency dispatch, push notification, map service, or public API host is configured.
 
-All times/data are local to the device. Messages are stored on that device and are not delivered to other users.
+## Verification snapshot
+
+Latest results and limitations are recorded in [docs/audit/test-results.md](docs/audit/test-results.md). Automated tests do not replace PostgreSQL concurrency testing, Android denied-permission testing on a range of devices, penetration/accessibility review, backup recovery, or real operational approval.

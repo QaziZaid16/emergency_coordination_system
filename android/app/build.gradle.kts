@@ -15,6 +15,7 @@ android {
     }
 
     defaultConfig {
+        manifestPlaceholders["usesCleartextTraffic"] = "false"
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "edu.cgc.university.emergency_coordination_system"
         // You can update the following values to match your application needs.
@@ -30,7 +31,12 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            // Permit the local HTTP API only in debug builds; release must use HTTPS.
+            manifestPlaceholders["usesCleartextTraffic"] = "true"
+        }
         release {
+            manifestPlaceholders["usesCleartextTraffic"] = "false"
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")

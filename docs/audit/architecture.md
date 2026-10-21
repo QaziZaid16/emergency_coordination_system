@@ -2,7 +2,32 @@
 
 ## Product and architecture
 
-Single Flutter Android app for the academic prototype. Local-first storage supports simulated operations without undocumented Firebase billing, cloud infrastructure, accounts or agency integrations.
+### Current delivered prototype
+
+The existing Flutter client contains coordinator and responder demo workspaces and stores simulated records in one app-private JSON file. It has no backend, identity, synchronization or real GPS. The responder selector is not authentication. Do not treat its records or coordinates as live operational data.
+
+### Target architecture (evolution in progress)
+
+Use one Flutter application with three explicit role entry points and one shared FastAPI service. The service owns credentials, role authorization, incidents, responder capability/availability, assignments, resources, status transitions, and audit history. SQLite supports local development and automated tests; PostgreSQL is the deployment database because assignment uniqueness and concurrent writes must be transactional. API clients never write directly to the legacy JSON store in authenticated mode. The legacy coordinator/responder experience remains an explicitly labeled, isolated training mode until a deliberate migration is approved.
+
+```text
+Flutter (Admin / User / Responder portals; optional isolated training mode)
+                  │ HTTPS bearer session + idempotency key
+                  ▼
+FastAPI (validation, role/ownership checks, assignment transaction, audit)
+                  │ SQLAlchemy transaction
+                  ▼
+PostgreSQL for deployment / SQLite for local tests
+```
+
+The current implementation milestone adds the runnable API and role-specific workflows without claiming a hosted service, verified agency integration, push delivery, or production readiness. Deployment must provide TLS, a managed PostgreSQL instance, secure environment secrets, backups, monitoring, retention and incident-response policy. Pollable authorized change feeds are the synchronization fallback; upgrades to a managed push/SSE channel can follow without changing ownership rules.
+
+### Migration strategy
+
+1. Keep the existing JSON and sample dataset in local training mode; never import it automatically as real users, responders, resources, incidents, locations or assignments.
+2. Create backend accounts and operational data through authenticated/admin-controlled API operations. Provision the first administrator only with a one-time CLI command requiring email and password from the operator; there is no hardcoded default account.
+3. Select the server portal at sign-in and keep each token/session scoped to its server-side role. The client may not elevate roles by choosing a portal.
+4. Move deployments only after operator identity, legal location handling, retention, backup and emergency-service boundaries have been reviewed.
 
 ```text
 Flutter presentation (coordinator + responder workspaces)
@@ -15,7 +40,7 @@ Repository interface ── local JSON persistence in app-private files
                 └── explicitly simulated seed workspace
 ```
 
-Presentation handles navigation/forms/status feedback. Domain services own validation, transitions, priority, matching, exclusive resource allocation and reporting. Repository owns durable incidents, responders, resources, messages and activity events. No API/backend/authentication/cloud sync is specified. A future service adapter can replace local storage when deployment, privacy, identity and availability requirements are known.
+Presentation handles navigation/forms/status feedback. The local training domain/store remains local and explicitly simulated. In shared mode the API owns durable operational entities and all authorization and transition decisions. The existing priority calculation and skill/availability/location matching remain the baseline; distance is shown only when coordinates are recorded with a timestamp/accuracy and never uses the legacy sample coordinates.
 
 ## Domain records
 
@@ -39,4 +64,4 @@ Overview; incident intake/list/detail; responders; resources; incident communica
 
 ## Limits and costs
 
-No paid or recurring infrastructure. No login/security boundary, app-level encryption, managed backup, cross-device sync, live GPS/map/traffic/geocoding, push notification, emergency phone dispatch or external system integration. Local storage loss is possible if app data is cleared. Never use this prototype for real emergency operations. Future cloud/maps/notifications require provider, privacy, cost and credential approval.
+This repository is a development implementation, not an operational emergency dispatch service. Until deployed behind TLS with managed PostgreSQL, secured secrets, monitoring, backup/restore, privacy/retention policy, penetration testing, accessibility review, and trained organizational procedures, use only for development/demo scenarios. No verified ambulance/fire/police integration or push-notification provider is present; request receipt is not agency dispatch. Priority remains a prototype heuristic, never approved triage policy. Legacy JSON records are simulated and are never silently migrated. Real location sharing is sensitive data and requires an explicit privacy/legal review before deployment.

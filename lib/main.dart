@@ -4,9 +4,10 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import 'data/api_client.dart';
 import 'data/operations_store.dart';
 import 'presentation/design_system.dart';
-import 'presentation/home_page.dart';
+import 'presentation/portals.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,11 +28,12 @@ Future<void> main() async {
 class EmergencyCoordinationApp extends StatelessWidget {
   const EmergencyCoordinationApp({super.key, required this.store});
   final OperationsStore store;
+  static final api = ApiClient();
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Emergency Coordination',
     debugShowCheckedModeBanner: false,
     theme: OpsTheme.light,
-    home: HomePage(store: store),
+    home: PortalEntryPage(api: api, trainingStore: store),
   );
 }
