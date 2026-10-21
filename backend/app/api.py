@@ -1,5 +1,4 @@
-from datetime import datetime, timezone
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 from uuid import uuid4
 
@@ -10,11 +9,12 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.database import get_db
 from app.dispatch import distance_km, priority_for
 from app.models import Assignment, AuditEvent, AuthSession, Incident, IncidentUpdate, ResponderProfile, Resource, User, now_utc
-from app.schemas import AssignmentCreate, AvailabilityUpdate, IncidentCreate, LoginRequest, LoginResponse, MessageCreate, ResponderLocation, ResourceCreate, StatusUpdate, UserCreate, UserRegister, UserView
-from app.security import bearer, current_user, hash_password, issue_token, require_roles, verify_password
+from app.schemas import AssignmentCreate, AvailabilityUpdate, IncidentCreate, LoginRequest, LoginResponse, MessageCreate, RefreshRequest, ResponderLocation, ResourceCreate, StatusUpdate, UserCreate, UserRegister, UserView
+from app.security import bearer, current_user, encode_access_token, hash_password, hash_refresh_token, issue_token, require_roles, verify_password
 
 router = APIRouter()
 ACTIVE_ASSIGNMENTS = ("Assigned", "Accepted", "En Route", "On Scene")
@@ -83,8 +83,14 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(401, "Email or password is incorrect")
     if user.role != body.portal:
         raise HTTPException(403, "This account does not belong to the selected portal")
-    token, expires = issue_token(user, db)
-    return {"access_token": token, "expires_at": expires, "user": user}
+    token, expires, refresh_token, session_expires = issue_token(user, db, body.remember_me)
+    return {
+        "access_token": token,
+        "expires_at": expires,
+        "refresh_token": refresh_token,
+        "session_expires_at": session_expires,
+        "user": user,
+    }
 
 
 @router.post("/auth/register", status_code=201, response_model=LoginResponse)
@@ -98,8 +104,52 @@ def register_user(body: UserRegister, db: Session = Depends(get_db)):
     audit(db, user, "user.registered", "user", user.id)
     db.commit()
     db.refresh(user)
-    token, expires = issue_token(user, db)
-    return {"access_token": token, "expires_at": expires, "user": user}
+    token, expires, refresh_token, session_expires = issue_token(user, db, body.remember_me)
+    return {
+        "access_token": token,
+        "expires_at": expires,
+        "refresh_token": refresh_token,
+        "session_expires_at": session_expires,
+        "user": user,
+    }
+
+
+@router.post("/auth/refresh", response_model=LoginResponse)
+def refresh_session(body: RefreshRequest, db: Session = Depends(get_db)):
+    session = db.scalar(
+        select(AuthSession)
+        .where(AuthSession.refresh_token_hash == hash_refresh_token(body.refresh_token))
+        .with_for_update()
+    )
+    now = now_utc()
+    if (
+        not session
+        or session.revoked_at
+        or session.expires_at.replace(tzinfo=timezone.utc) <= now
+    ):
+        raise HTTPException(401, "The remembered session is no longer valid")
+    user = db.get(User, session.user_id)
+    if not user or not user.active:
+        if session and not session.revoked_at:
+            session.revoked_at = now
+            db.commit()
+        raise HTTPException(401, "The remembered session is no longer valid")
+
+    refresh_token = secrets.token_urlsafe(48)
+    session.refresh_token_hash = hash_refresh_token(refresh_token)
+    session_expires = session.expires_at
+    if session_expires.tzinfo is None:
+        session_expires = session_expires.replace(tzinfo=timezone.utc)
+    access_expires = now + timedelta(minutes=get_settings().access_token_minutes)
+    access_token = encode_access_token(user, session.jti, now, access_expires)
+    db.commit()
+    return {
+        "access_token": access_token,
+        "expires_at": access_expires,
+        "refresh_token": refresh_token,
+        "session_expires_at": session_expires,
+        "user": user,
+    }
 
 
 @router.post("/auth/logout", status_code=204)

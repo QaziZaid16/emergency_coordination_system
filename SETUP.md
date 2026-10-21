@@ -95,7 +95,7 @@ The generated release is debug-signed for local demonstration. Production distri
 
 - The old coordinator/responder training app stores simulated data in Android's private `emergency_workspace.json` file.
 - Admin/User/Responder portal data resides only in the configured server database. The backend is authoritative; the client does not import training data.
-- Tokens are stored in platform secure storage, expire after the configured interval, and are revoked on logout. Clearing app data removes the local training file and stored token, not server-side records.
+- Remember Me is unchecked by default. When enabled, a rotating refresh token and short-lived access token are stored in Android secure storage; app startup validates the session with the backend before opening the role-matched portal. The remembered session expires after 30 days by default. Without it, the token is memory-only and app reopen requires sign-in. Logout clears local tokens and asks the server to revoke the session; an offline server can prevent confirmation of remote revocation. Apply Alembic migrations before using Remember Me on an existing database.
 - GPS is requested in foreground only. A user may manually enter a location if permission or GPS is unavailable. No live agency dispatch, push notification, map service, or public API host is configured.
 
 ## Verification snapshot

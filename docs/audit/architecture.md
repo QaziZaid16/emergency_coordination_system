@@ -1,67 +1,58 @@
 # Architecture and design decisions
 
-## Product and architecture
+## Current implementation
 
-### Current delivered prototype
-
-The existing Flutter client contains coordinator and responder demo workspaces and stores simulated records in one app-private JSON file. It has no backend, identity, synchronization or real GPS. The responder selector is not authentication. Do not treat its records or coordinates as live operational data.
-
-### Target architecture (evolution in progress)
-
-Use one Flutter application with three explicit role entry points and one shared FastAPI service. The service owns credentials, role authorization, incidents, responder capability/availability, assignments, resources, status transitions, and audit history. SQLite supports local development and automated tests; PostgreSQL is the deployment database because assignment uniqueness and concurrent writes must be transactional. API clients never write directly to the legacy JSON store in authenticated mode. The legacy coordinator/responder experience remains an explicitly labeled, isolated training mode until a deliberate migration is approved.
+One Flutter Android app provides authenticated Admin, User, and Responder portals backed by a FastAPI service, plus the original isolated local training workspace. The API owns identities, role authorization, shared incidents, responders, assignments, resources, status transitions, and audit history. SQLite supports local development and automated tests; PostgreSQL is the deployment target because assignment uniqueness and concurrent writes must be transactional. Authenticated clients never write to the training JSON store, and training records are not imported automatically.
 
 ```text
-Flutter (Admin / User / Responder portals; optional isolated training mode)
-                  │ HTTPS bearer session + idempotency key
+Flutter (Admin / User / Responder portals; isolated training mode)
+                  │ HTTPS bearer access token + idempotency key
+                  │ rotating refresh token only when Remember Me is selected
                   ▼
-FastAPI (validation, role/ownership checks, assignment transaction, audit)
+FastAPI (validation, role/ownership checks, refresh rotation, assignments, audit)
                   │ SQLAlchemy transaction
                   ▼
-PostgreSQL for deployment / SQLite for local tests
+PostgreSQL for deployment / SQLite for local development and tests
 ```
 
-The current implementation milestone adds the runnable API and role-specific workflows without claiming a hosted service, verified agency integration, push delivery, or production readiness. Deployment must provide TLS, a managed PostgreSQL instance, secure environment secrets, backups, monitoring, retention and incident-response policy. Pollable authorized change feeds are the synchronization fallback; upgrades to a managed push/SSE channel can follow without changing ownership rules.
+The repository contains the runnable API and role-specific workflows but no hosted service, verified agency integration, push delivery, or production deployment. Deployment must provide TLS, managed PostgreSQL, secure environment secrets, backups, monitoring, retention and incident-response policy. The client polls authorized updates every 12 seconds.
 
-### Migration strategy
+## Authentication and session decisions
 
-1. Keep the existing JSON and sample dataset in local training mode; never import it automatically as real users, responders, resources, incidents, locations or assignments.
-2. Create backend accounts and operational data through authenticated/admin-controlled API operations. Provision the first administrator only with a one-time CLI command requiring email and password from the operator; there is no hardcoded default account.
-3. Select the server portal at sign-in and keep each token/session scoped to its server-side role. The client may not elevate roles by choosing a portal.
-4. Move deployments only after operator identity, legal location handling, retention, backup and emergency-service boundaries have been reviewed.
+- Login is scoped to the selected server role; selecting a different portal never changes account permissions.
+- Remember Me is unchecked by default. Without it, the access token stays in app memory and reopening the app requires sign-in.
+- With it, the API issues a 30-minute access token and a random refresh token. Only the refresh-token hash is persisted server-side; the client stores the refresh token in Android secure storage and rotates it when refreshing access.
+- Remembered sessions expire at the configured deadline (30 days by default; `REMEMBER_ME_DAYS` allows 1–365). Logout and account deactivation revoke the server session.
+- App startup validates stored identity and role using `/auth/me` before selecting a dashboard. A service outage never authenticates from locally cached identity; the app stays at the portal chooser and offers retry.
+- Older builds persisted all sessions without an explicit choice. The new client deletes those legacy session entries instead of assuming consent.
+- Refresh tokens are bearer secrets: production still needs login/refresh rate limits, monitoring, deployment-level concurrency testing, and a selected retention policy.
 
-```text
-Flutter presentation (coordinator + responder workspaces)
-                │ validated commands / view state
-                ▼
-Domain services (priority, matching, lifecycle, reporting)
-                │ state transitions
-                ▼
-Repository interface ── local JSON persistence in app-private files
-                └── explicitly simulated seed workspace
-```
+## Migration strategy
 
-Presentation handles navigation/forms/status feedback. The local training domain/store remains local and explicitly simulated. In shared mode the API owns durable operational entities and all authorization and transition decisions. The existing priority calculation and skill/availability/location matching remain the baseline; distance is shown only when coordinates are recorded with a timestamp/accuracy and never uses the legacy sample coordinates.
+1. Keep the existing JSON and sample dataset in local training mode; never import them as users, responders, incidents, locations or assignments.
+2. Create backend accounts and operational data through authenticated/admin-controlled API operations. Provision the first administrator with the one-time CLI command; there is no default administrator credential.
+3. Apply Alembic migrations before running updated backend code against an existing database.
+4. Before deployment, review operator identity, legal location handling, retention, backup, recovery, emergency-service boundaries and incident response.
 
 ## Domain records
 
-- Incident: ID, category, description, urgency/severity, coordinates and display location, timestamps, priority/status, assigned responder/resource IDs.
-- Responder: ID/name/type/skills, availability/status, coordinates, current incident ID.
-- Resource: ID/name/type, quantity and availability, status, linked incident IDs.
-- Message: ID, incident ID, sender role/name, body and time.
-- Activity event: ID, incident ID, kind, summary, actor and timestamp; append on create, assignment, status and completion.
+- **User / session:** identity, role, active state, access-token session, hashed rotating refresh credential when Remember Me is enabled, expiry and revocation.
+- **Incident:** category, description, severity/urgency, coordinates and display location, timestamps, priority/status, reporter and assignment links.
+- **Responder:** account, service capabilities, availability, current location timestamp/accuracy and assignment.
+- **Resource:** type, quantity, active and allocated count.
+- **Assignment / update / audit event:** responder/resource relationship, lifecycle history, communications and actor/time/action details.
 
-## Rules
+## Rules and data boundaries
 
-- Priority is derived from category, severity and urgency by the explicit policy in `lib/domain/dispatch_rules.dart`; rationale is visible. Decision support only.
-- Eligible responders are available, skill-compatible and unassigned; the one-active-incident capacity rule excludes responders carrying workload. The incident queue sorts Critical, High, Medium, then Low. Within an incident, recommendations sort by straight-line distance, then fewer listed skills as a deterministic tie-break; a human coordinator confirms. These are transparent prototype heuristics, not operational policy.
-- Lifecycle: New → Queued or Assigned → En Route → Responding → Resolved. Invalid transitions are rejected. Resolution releases assignments.
-- Coordinates are manually entered/simulated. Haversine is a rough distance, not routed ETA.
-- On Android, a small MethodChannel exposes the app-private files directory and Dart writes a single JSON workspace file; no Android storage permission is required. This is appropriate for the small prototype; production needs transactional/cloud storage, retention, privacy, identity, backup and recovery decisions.
+- Priority uses the explicit policy in `lib/domain/dispatch_rules.dart`; rationale is visible. It is decision support only.
+- Eligible responders are available, skill-compatible and unassigned. Recommendations show straight-line distance only when incident and responder locations are fresh and accurate; the human admin confirms assignment.
+- The shared User portal captures foreground GPS and supports manual location fallback. The Responder portal can share one foreground location point. There is no background tracking, map routing or ETA.
+- Training mode uses simulated coordinates and a single app-private JSON file via Android MethodChannel. Shared records remain server-owned.
 
-## UI structure
+## UI and identity
 
-Overview; incident intake/list/detail; responders; resources; incident communication; reports/history; responder workspace. A shared Material 3 theme in `lib/presentation/design_system.dart` sets the operational teal palette, warm urgency accent, typography, touch-sized controls, cards, fields and navigation. The overview groups operational counts into compact metric cards and makes the training-only state visible in the app bar. Incident search, concise section headers, clear empty states and a lifecycle progress indicator help people scan cases and understand their current step. Android is target; web platform scaffolding is for development only.
+Material 3 tokens in `lib/presentation/design_system.dart` define the teal/coral palette, typography, controls, cards and touch targets. The same location-hub brand mark appears in the Android launcher, app entry, role dashboards, and splash screen. Android adaptive, legacy-density, themed monochrome, and PWA assets are kept aligned. The supported Flutter theme is light; a complete dark application theme has not been designed.
 
-## Limits and costs
+## Remaining limits
 
-This repository is a development implementation, not an operational emergency dispatch service. Until deployed behind TLS with managed PostgreSQL, secured secrets, monitoring, backup/restore, privacy/retention policy, penetration testing, accessibility review, and trained organizational procedures, use only for development/demo scenarios. No verified ambulance/fire/police integration or push-notification provider is present; request receipt is not agency dispatch. Priority remains a prototype heuristic, never approved triage policy. Legacy JSON records are simulated and are never silently migrated. Real location sharing is sensitive data and requires an explicit privacy/legal review before deployment.
+This repository is a development implementation, not an emergency dispatch service. A real deployment still needs HTTPS, managed PostgreSQL, rate limits, password recovery/MFA decisions, monitoring, backups/restore drills, privacy and retention policy, penetration testing, accessibility review, and approved operational procedures. No ambulance/fire/police integration, push provider or map service is included. Training examples and the priority heuristic are not validated operational data or policy.

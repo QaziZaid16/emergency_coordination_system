@@ -19,12 +19,18 @@ class UserRegister(BaseModel):
     email: EmailStr
     display_name: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=12, max_length=128)
+    remember_me: bool = False
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
     portal: Role
+    remember_me: bool = False
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(min_length=32, max_length=128)
 
 
 class UserView(BaseModel):
@@ -39,6 +45,8 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_at: datetime
+    refresh_token: str | None = None
+    session_expires_at: datetime
     user: UserView
 
 

@@ -1,9 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
-<defs><radialGradient id="bg" cx="50%" cy="45%" r="80%"><stop stop-color="#1d414b"/><stop offset="1" stop-color="#0f1d27"/></radialGradient></defs>
-<rect width="108" height="108" rx="24" fill="url(#bg)"/>
-<g fill="none" stroke="#96ccc4" stroke-width="2.6" stroke-linecap="round"><path d="M54 54V27M54 54H81M54 54V81M54 54H27"/></g>
-<circle cx="54" cy="54" r="19" fill="#f4f1e6" stroke="#182e37" stroke-width="1.4"/>
-<path d="M54 37c-4 3-7 4-11 4h-1v10c0 9 5 15 12 18 7-3 12-9 12-18V41c-4 0-7-1-12-4z" fill="#de5e4f"/>
-<path d="M44 53h5l3-5 3 11 4-8 3 2h2" fill="none" stroke="#fff9ef" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
-<g stroke="#f7f2e6" stroke-width="1.1"><circle cx="54" cy="25" r="6.4" fill="#5bccbe"/><circle cx="83" cy="54" r="6.4" fill="#f6be63"/><circle cx="54" cy="83" r="6.4" fill="#71a8da"/><circle cx="25" cy="54" r="6.4" fill="#e87b6b"/></g>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 108 108">
+  <rect width="108" height="108" rx="24" fill="#102B35"/>
+  <g fill="none" stroke="#61C7B5" stroke-width="2.8" stroke-linecap="round">
+    <path d="M24 72 L39 59"/>
+    <path d="M84 72 L69 59"/>
+  </g>
+  <g fill="#E46E5C" stroke="#102B35" stroke-width="2">
+    <circle cx="22" cy="74" r="5.5"/>
+    <circle cx="86" cy="74" r="5.5"/>
+  </g>
+  <path d="M54 22.5c-14.4 0-23 10.1-23 24.1 0 17.4 23 35.9 23 35.9s23-18.5 23-35.9c0-14-8.6-24.1-23-24.1Z" fill="#EAF6F2"/>
+  <circle cx="54" cy="46" r="13.2" fill="#126D67"/>
+  <circle cx="54" cy="46" r="5.2" fill="#E46E5C"/>
+  <circle cx="54" cy="46" r="2" fill="#FFF9EF"/>
 </svg>

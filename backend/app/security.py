@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+import hashlib
+import secrets
 from uuid import uuid4
 
 import jwt
@@ -27,19 +29,40 @@ def verify_password(raw: str, hashed: str) -> bool:
         return False
 
 
-def issue_token(user: User, db: Session) -> tuple[str, datetime]:
-    settings = get_settings()
-    now = datetime.now(timezone.utc)
-    expires = now + timedelta(minutes=settings.access_token_minutes)
-    jti = str(uuid4())
-    token = jwt.encode(
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def encode_access_token(user: User, jti: str, now: datetime, expires: datetime) -> str:
+    return jwt.encode(
         {"sub": user.id, "role": user.role, "iat": now, "exp": expires, "jti": jti},
-        settings.jwt_secret,
+        get_settings().jwt_secret,
         algorithm="HS256",
     )
-    db.add(AuthSession(jti=jti, user_id=user.id, expires_at=expires))
+
+
+def issue_token(
+    user: User, db: Session, remember_me: bool = False
+) -> tuple[str, datetime, str | None, datetime]:
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    access_expires = now + timedelta(minutes=settings.access_token_minutes)
+    session_expires = (
+        now + timedelta(days=settings.remember_me_days)
+        if remember_me
+        else access_expires
+    )
+    jti = str(uuid4())
+    refresh_token = secrets.token_urlsafe(48) if remember_me else None
+    token = encode_access_token(user, jti, now, access_expires)
+    db.add(AuthSession(
+        jti=jti,
+        user_id=user.id,
+        expires_at=session_expires,
+        refresh_token_hash=hash_refresh_token(refresh_token) if refresh_token else None,
+    ))
     db.commit()
-    return token, expires
+    return token, access_expires, refresh_token, session_expires
 
 
 def current_user(

@@ -122,7 +122,17 @@ class AuditEvent(Base):
 
 class AuthSession(Base):
     __tablename__ = "auth_sessions"
+    __table_args__ = (
+        Index(
+            "uq_auth_sessions_refresh_token_hash",
+            "refresh_token_hash",
+            unique=True,
+            sqlite_where=text("refresh_token_hash IS NOT NULL"),
+            postgresql_where=text("refresh_token_hash IS NOT NULL"),
+        ),
+    )
     jti: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    refresh_token_hash: Mapped[str | None] = mapped_column(String(64))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

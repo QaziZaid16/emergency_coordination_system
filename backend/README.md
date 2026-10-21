@@ -81,7 +81,7 @@ The example Compose file does not terminate TLS or provide production-grade secr
 
 ## Security and behavior
 
-- Passwords use Argon2 through `pwdlib`; bearer JWTs expire after the configured interval and each token has a server-side revocable session row. Logout revokes the row. Deactivating an account revokes its sessions.
+- Passwords use Argon2 through `pwdlib`; access JWTs expire after `ACCESS_TOKEN_MINUTES` (30 by default). If the user opts into Remember Me, login/register also returns a high-entropy opaque refresh token. Only its SHA-256 hash is stored server-side; refresh rotates the credential and the session expires after `REMEMBER_ME_DAYS` (30 by default, configurable 1–365). The client stores credentials only in secure storage and validates the session at startup. Logout revokes the row; deactivation revokes sessions. There is no email recovery, MFA, or rate limiting yet.
 - Portal selection is included in login and must match the stored server role. Authorization is checked on each protected route.
 - Users see only their own incidents. Responders see current assignments and their own completed task history; a reassigned responder cannot update the old task. Admin-only resources, accounts, dashboard, assignments, and audit routes reject other roles.
 - Only an admin can assign/reassign. Availability, skill capability, current workload, and resource capacity are checked in a transaction. Partial unique database indexes prevent one active responder or incident from having conflicting active assignments. Conflicts return `409`.

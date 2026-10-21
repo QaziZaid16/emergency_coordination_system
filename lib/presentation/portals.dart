@@ -26,6 +26,61 @@ const _roles = <String, (String, IconData, String)>{
   ),
 };
 
+class CoordinationBrandMark extends StatelessWidget {
+  const CoordinationBrandMark({super.key, this.size = 48});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(size * .22),
+    child: SizedBox.square(
+      dimension: size,
+      child: CustomPaint(painter: _CoordinationMarkPainter()),
+    ),
+  );
+}
+
+class _CoordinationMarkPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 108, size.height / 108);
+    canvas.drawColor(const Color(0xFF102B35), BlendMode.src);
+    final connectors = Paint()
+      ..color = const Color(0xFF61C7B5)
+      ..strokeWidth = 2.8
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(const Offset(24, 72), const Offset(39, 59), connectors);
+    canvas.drawLine(const Offset(84, 72), const Offset(69, 59), connectors);
+    final node = Paint()..color = const Color(0xFFE46E5C);
+    canvas.drawCircle(const Offset(22, 74), 5.5, node);
+    canvas.drawCircle(const Offset(86, 74), 5.5, node);
+    final pin = Path()
+      ..moveTo(54, 22.5)
+      ..cubicTo(39.6, 22.5, 31, 32.6, 31, 46.6)
+      ..cubicTo(31, 64, 54, 82.5, 54, 82.5)
+      ..cubicTo(54, 82.5, 77, 64, 77, 46.6)
+      ..cubicTo(77, 32.6, 68.4, 22.5, 54, 22.5)
+      ..close();
+    canvas.drawPath(pin, Paint()..color = const Color(0xFFEAF6F2));
+    canvas.drawCircle(
+      const Offset(54, 46),
+      13.2,
+      Paint()..color = const Color(0xFF126D67),
+    );
+    canvas.drawCircle(const Offset(54, 46), 5.2, node);
+    canvas.drawCircle(
+      const Offset(54, 46),
+      2,
+      Paint()..color = const Color(0xFFFFF9EF),
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 class PortalEntryPage extends StatefulWidget {
   const PortalEntryPage({
     super.key,
@@ -41,28 +96,85 @@ class PortalEntryPage extends StatefulWidget {
 class _PortalEntryPageState extends State<PortalEntryPage> {
   ApiSession? session;
   bool restoring = true;
+  String? restoreError;
 
   @override
   void initState() {
     super.initState();
-    widget.api.restoreSession().then((saved) {
+    widget.api.sessionExpired.addListener(_onSessionExpired);
+    _restore();
+  }
+
+  @override
+  void dispose() {
+    widget.api.sessionExpired.removeListener(_onSessionExpired);
+    super.dispose();
+  }
+
+  void _onSessionExpired() {
+    if (!widget.api.sessionExpired.value || !mounted || session == null) return;
+    widget.api.sessionExpired.value = false;
+    setState(() {
+      session = null;
+      restoreError = 'Your session expired or was revoked. Sign in again.';
+    });
+    unawaited(widget.api.clearStoredSession().catchError((_) {}));
+  }
+
+  Future<void> _restore() async {
+    setState(() {
+      restoring = true;
+      restoreError = null;
+    });
+    try {
+      final saved = await widget.api.restoreSession();
       if (!mounted) return;
       setState(() {
         session = saved;
         restoring = false;
       });
-    });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        session = null;
+        restoreError = e.message;
+        restoring = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        session = null;
+        restoreError = 'Could not verify this device session. Check the service and retry.';
+        restoring = false;
+      });
+    }
   }
 
-  void _signedIn(ApiSession value) => setState(() => session = value);
+  void _signedIn(ApiSession value) => setState(() {
+    widget.api.sessionExpired.value = false;
+    session = value;
+    restoreError = null;
+  });
 
   Future<void> _logout() async {
     final current = session;
-    setState(() => session = null);
+    setState(() {
+      session = null;
+      restoreError = null;
+    });
+    var serverRevoked = current == null;
     if (current != null) {
       try {
         await widget.api.logout(current);
-      } catch (_) {}
+        serverRevoked = true;
+      } catch (_) {
+        serverRevoked = false;
+      }
+    }
+    if (mounted && !serverRevoked) {
+      setState(() {
+        restoreError = 'Signed out on this device, but the server could not confirm session revocation.';
+      });
     }
   }
 
@@ -88,7 +200,13 @@ class _PortalEntryPageState extends State<PortalEntryPage> {
       };
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('Emergency Coordination')),
+      appBar: AppBar(
+        leading: const Padding(
+          padding: EdgeInsets.all(8),
+          child: CoordinationBrandMark(size: 48),
+        ),
+        title: const Text('Emergency Coordination'),
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),
@@ -103,6 +221,32 @@ class _PortalEntryPageState extends State<PortalEntryPage> {
               'Shared accounts and incident records are verified by the coordination service. Training mode remains separate.',
             ),
             const SizedBox(height: 18),
+            if (restoreError != null) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        restoreError!.startsWith('Signed out')
+                            ? 'Remote logout not confirmed'
+                            : 'Session not restored',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(restoreError!),
+                      TextButton.icon(
+                        onPressed: _restore,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Retry session check'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             for (final entry in _roles.entries)
               Card(
                 child: ListTile(
@@ -178,6 +322,7 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
   bool registering = false;
   bool busy = false;
   bool obscure = true;
+  bool rememberMe = false;
   String? error;
   @override
   void dispose() {
@@ -201,8 +346,18 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
     });
     try {
       final value = widget.role == 'user' && registering
-          ? await widget.api.registerUser(name.text, email.text, password.text)
-          : await widget.api.login(email.text, password.text, widget.role);
+          ? await widget.api.registerUser(
+              name.text,
+              email.text,
+              password.text,
+              rememberMe: rememberMe,
+            )
+          : await widget.api.login(
+              email.text,
+              password.text,
+              widget.role,
+              rememberMe: rememberMe,
+            );
       if (mounted) {
         widget.onSignedIn(value);
         Navigator.of(context).pop();
@@ -226,7 +381,7 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
             padding: const EdgeInsets.all(22),
             shrinkWrap: true,
             children: [
-              Icon(role.$2, size: 52, color: OpsColors.primary),
+              const Center(child: CoordinationBrandMark(size: 72)),
               const SizedBox(height: 14),
               Text(
                 '${registering ? 'Create' : 'Sign in to'} ${role.$1}',
@@ -261,6 +416,7 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
                     TextFormField(
                       controller: email,
                       keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
                       autofillHints: const [
                         AutofillHints.username,
                         AutofillHints.email,
@@ -268,7 +424,10 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
                       decoration: const InputDecoration(
                         labelText: 'Email address',
                       ),
-                      validator: (v) => v == null || !v.contains('@')
+                      validator: (v) =>
+                          v == null ||
+                              !RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+                                  .hasMatch(v.trim())
                           ? 'Enter a valid email address'
                           : null,
                     ),
@@ -276,6 +435,10 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
                     TextFormField(
                       controller: password,
                       obscureText: obscure,
+                      textInputAction: TextInputAction.done,
+                      onFieldSubmitted: (_) {
+                        if (!busy) submit();
+                      },
                       autofillHints: [
                         registering
                             ? AutofillHints.newPassword
@@ -287,6 +450,7 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
                             ? 'Use at least 12 characters.'
                             : null,
                         suffixIcon: IconButton(
+                          tooltip: obscure ? 'Show password' : 'Hide password',
                           onPressed: () => setState(() => obscure = !obscure),
                           icon: Icon(
                             obscure
@@ -301,6 +465,20 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
                                 ? 'Use at least 12 characters'
                                 : 'Enter your password'
                           : null,
+                    ),
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Remember me on this device'),
+                      subtitle: Text(
+                        rememberMe ? 'Stay signed in for up to 30 days.' : 'Leave this off to sign in again after closing the app.',
+                      ),
+                      value: rememberMe,
+                      onChanged: busy
+                          ? null
+                          : (value) =>
+                                setState(() => rememberMe = value ?? false),
+                      controlAffinity: ListTileControlAffinity.leading,
                     ),
                   ],
                 ),
@@ -551,6 +729,10 @@ class _UserPortalState extends State<UserPortal> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
+      leading: const Padding(
+        padding: EdgeInsets.all(8),
+        child: CoordinationBrandMark(size: 48),
+      ),
       title: const Text('User Portal'),
       actions: [
         IconButton(
@@ -1119,7 +1301,9 @@ class _AdminPortalState extends State<AdminPortal> {
   Future<void> editResource(Map<String, dynamic> resource) async {
     final name = TextEditingController(text: resource['name'].toString());
     final kind = TextEditingController(text: resource['kind'].toString());
-    final quantity = TextEditingController(text: resource['quantity'].toString());
+    final quantity = TextEditingController(
+      text: resource['quantity'].toString(),
+    );
     final values = await showDialog<Map<String, String>>(
       context: context,
       builder: (context) => _FormDialog(
@@ -1127,7 +1311,9 @@ class _AdminPortalState extends State<AdminPortal> {
         fields: [('Name', name), ('Type', kind), ('Quantity', quantity)],
       ),
     );
-    name.dispose(); kind.dispose(); quantity.dispose();
+    name.dispose();
+    kind.dispose();
+    quantity.dispose();
     if (values == null) return;
     try {
       await widget.api.patch(
@@ -1145,7 +1331,10 @@ class _AdminPortalState extends State<AdminPortal> {
     }
   }
 
-  Future<void> setResourceActive(Map<String, dynamic> resource, bool active) async {
+  Future<void> setResourceActive(
+    Map<String, dynamic> resource,
+    bool active,
+  ) async {
     try {
       await widget.api.patch(
         '/admin/resources/${resource['id']}?active=$active',
@@ -1162,18 +1351,29 @@ class _AdminPortalState extends State<AdminPortal> {
     }
   }
 
-  Future<void> closeIncident(Map<String, dynamic> incident, String action) async {
+  Future<void> closeIncident(
+    Map<String, dynamic> incident,
+    String action,
+  ) async {
     final isResolve = action == 'resolve';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(isResolve ? 'Resolve incident?' : 'Cancel incident?'),
-        content: Text(isResolve
-            ? 'This closes the incident and releases its current responder and allocated resource.'
-            : 'This cancels the report and releases its current responder and allocated resource.'),
+        content: Text(
+          isResolve
+              ? 'This closes the incident and releases its current responder and allocated resource.'
+              : 'This cancels the report and releases its current responder and allocated resource.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Back')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(isResolve ? 'Resolve' : 'Cancel incident')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Back'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(isResolve ? 'Resolve' : 'Cancel incident'),
+          ),
         ],
       ),
     );
@@ -1194,6 +1394,10 @@ class _AdminPortalState extends State<AdminPortal> {
     length: 6,
     child: Scaffold(
       appBar: AppBar(
+        leading: const Padding(
+          padding: EdgeInsets.all(8),
+          child: CoordinationBrandMark(size: 48),
+        ),
         title: const Text('Admin Portal'),
         actions: [
           IconButton(
@@ -1312,13 +1516,13 @@ class _AdminDashboard extends StatelessWidget {
           for (final key in const [
             'total_incidents',
             'active_incidents',
-          'unassigned',
-          'assigned',
+            'unassigned',
+            'assigned',
             'in_progress',
             'resolved',
             'responders_available',
             'responders_busy',
-          'responders_unavailable',
+            'responders_unavailable',
             'resources_allocated',
           ])
             SizedBox(
@@ -1341,12 +1545,12 @@ class _AdminDashboard extends StatelessWidget {
                         'total_incidents' => 'Total reports',
                         'active_incidents' => 'Active',
                         'unassigned' => 'Awaiting assignment',
-            'assigned' => 'Assigned',
+                        'assigned' => 'Assigned',
                         'in_progress' => 'In progress',
                         'resolved' => 'Resolved',
                         'responders_available' => 'Available responders',
                         'responders_busy' => 'Busy responders',
-            'responders_unavailable' => 'Unavailable responders',
+                        'responders_unavailable' => 'Unavailable responders',
                         _ => 'Resources allocated',
                       }, style: Theme.of(context).textTheme.bodySmall),
                     ],
@@ -1413,10 +1617,19 @@ class _AdminIncidentsState extends State<_AdminIncidents> {
           _ => true,
         };
         final needle = search.text.trim().toLowerCase();
-        final searchMatches = needle.isEmpty || [
-          item['reference'], item['emergency_type'], item['description'], item['location_label'],
-          item['priority'], item['status'], item['responder_name'],
-        ].whereType<Object>().any((value) => value.toString().toLowerCase().contains(needle));
+        final searchMatches =
+            needle.isEmpty ||
+            [
+              item['reference'],
+              item['emergency_type'],
+              item['description'],
+              item['location_label'],
+              item['priority'],
+              item['status'],
+              item['responder_name'],
+            ].whereType<Object>().any(
+              (value) => value.toString().toLowerCase().contains(needle),
+            );
         return statusMatches && searchMatches;
       })
       .toList();
@@ -1433,14 +1646,32 @@ class _AdminIncidentsState extends State<_AdminIncidents> {
           hintText: 'Search reference, description, location, or responder',
           suffixIcon: search.text.isEmpty
               ? null
-              : IconButton(onPressed: () { search.clear(); setState(() {}); }, icon: const Icon(Icons.close)),
+              : IconButton(
+                  onPressed: () {
+                    search.clear();
+                    setState(() {});
+                  },
+                  icon: const Icon(Icons.close),
+                ),
         ),
       ),
       const SizedBox(height: 8),
-      Wrap(spacing: 6, children: [
-        for (final choice in const ['All', 'Active', 'Unassigned', 'Resolved'])
-          ChoiceChip(label: Text(choice), selected: filter == choice, onSelected: (_) => setState(() => filter = choice)),
-      ]),
+      Wrap(
+        spacing: 6,
+        children: [
+          for (final choice in const [
+            'All',
+            'Active',
+            'Unassigned',
+            'Resolved',
+          ])
+            ChoiceChip(
+              label: Text(choice),
+              selected: filter == choice,
+              onSelected: (_) => setState(() => filter = choice),
+            ),
+        ],
+      ),
       Row(
         children: [
           Expanded(
@@ -1449,7 +1680,10 @@ class _AdminIncidentsState extends State<_AdminIncidents> {
               style: Theme.of(context).textTheme.titleLarge,
             ),
           ),
-          IconButton(onPressed: widget.onRefresh, icon: const Icon(Icons.refresh)),
+          IconButton(
+            onPressed: widget.onRefresh,
+            icon: const Icon(Icons.refresh),
+          ),
         ],
       ),
       for (final item in visibleIncidents)
@@ -1599,7 +1833,12 @@ class _AdminUsers extends StatelessWidget {
 }
 
 class _AdminResources extends StatelessWidget {
-  const _AdminResources({required this.rows, required this.onAdd, required this.onEdit, required this.onActiveChanged});
+  const _AdminResources({
+    required this.rows,
+    required this.onAdd,
+    required this.onEdit,
+    required this.onActiveChanged,
+  });
   final List<dynamic> rows;
   final VoidCallback onAdd;
   final ValueChanged<Map<String, dynamic>> onEdit;
@@ -1624,10 +1863,20 @@ class _AdminResources extends StatelessWidget {
                 subtitle: Text(
                   '${row['kind']} · ${row['available']} of ${row['quantity']} available',
                 ),
-                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  IconButton(tooltip: 'Edit resource', onPressed: () => onEdit(row), icon: const Icon(Icons.edit_outlined)),
-                  Switch(value: row['active'] == true, onChanged: (active) => onActiveChanged(row, active)),
-                ]),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Edit resource',
+                      onPressed: () => onEdit(row),
+                      icon: const Icon(Icons.edit_outlined),
+                    ),
+                    Switch(
+                      value: row['active'] == true,
+                      onChanged: (active) => onActiveChanged(row, active),
+                    ),
+                  ],
+                ),
               ),
             );
           },
@@ -1856,6 +2105,10 @@ class _ResponderPortalState extends State<ResponderPortal> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
+      leading: const Padding(
+        padding: EdgeInsets.all(8),
+        child: CoordinationBrandMark(size: 48),
+      ),
       title: const Text('Responder Portal'),
       actions: [
         IconButton(

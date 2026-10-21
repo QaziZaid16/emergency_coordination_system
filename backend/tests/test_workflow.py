@@ -1,9 +1,10 @@
+import jwt
 from sqlalchemy import select
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.database import SessionLocal
-from app.models import User
+from app.models import AuthSession, User
 from app.security import hash_password
 
 
@@ -106,6 +107,62 @@ def test_logout_revokes_session_and_admin_only_routes_are_protected(client):
     assert client.get("/api/v1/admin/dashboard", headers=auth(token)).status_code == 200
     assert client.post("/api/v1/auth/logout", headers=auth(token)).status_code == 204
     assert client.get("/api/v1/admin/dashboard", headers=auth(token)).status_code == 401
+
+
+def test_remember_me_uses_bounded_server_session_and_revokes_it_on_logout(client):
+    create_admin()
+    normal = client.post("/api/v1/auth/login", json={
+        "email": "admin@example.com", "password": "AdminPassword-1234", "portal": "admin",
+    })
+    remembered = client.post("/api/v1/auth/login", json={
+        "email": "admin@example.com", "password": "AdminPassword-1234", "portal": "admin",
+        "remember_me": True,
+    })
+    assert normal.status_code == remembered.status_code == 200
+    short_claims = jwt.decode(normal.json()["access_token"], options={"verify_signature": False, "verify_exp": False})
+    long_claims = jwt.decode(remembered.json()["access_token"], options={"verify_signature": False, "verify_exp": False})
+    assert 29 * 60 <= short_claims["exp"] - short_claims["iat"] <= 31 * 60
+    assert 29 * 60 <= long_claims["exp"] - long_claims["iat"] <= 31 * 60
+    assert remembered.json()["refresh_token"]
+    remembered_deadline = datetime.fromisoformat(remembered.json()["session_expires_at"])
+    assert 29 * 24 * 60 * 60 <= remembered_deadline.timestamp() - long_claims["iat"] <= 31 * 24 * 60 * 60
+    with SessionLocal() as db:
+        remembered_row = db.get(AuthSession, long_claims["jti"])
+        assert remembered_row.refresh_token_hash
+        assert remembered_row.refresh_token_hash != remembered.json()["refresh_token"]
+    remembered_token = remembered.json()["access_token"]
+    assert client.get("/api/v1/auth/me", headers=auth(remembered_token)).status_code == 200
+    first_refresh = remembered.json()["refresh_token"]
+    refreshed = client.post("/api/v1/auth/refresh", json={"refresh_token": first_refresh})
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["refresh_token"] != first_refresh
+    assert datetime.fromisoformat(refreshed.json()["session_expires_at"]).tzinfo is not None
+    assert client.post("/api/v1/auth/refresh", json={"refresh_token": first_refresh}).status_code == 401
+    refreshed_token = refreshed.json()["access_token"]
+    assert client.get("/api/v1/auth/me", headers=auth(refreshed_token)).status_code == 200
+    assert client.post("/api/v1/auth/logout", headers=auth(refreshed_token)).status_code == 204
+    assert client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": refreshed.json()["refresh_token"]}
+    ).status_code == 401
+
+    normal_token = normal.json()["access_token"]
+    normal_claims = jwt.decode(normal_token, options={"verify_signature": False, "verify_exp": False})
+    with SessionLocal() as db:
+        server_session = db.get(AuthSession, normal_claims["jti"])
+        server_session.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        db.commit()
+    assert client.get("/api/v1/auth/me", headers=auth(normal_token)).status_code == 401
+
+    registered = client.post("/api/v1/auth/register", json={
+        "email": "remembered-caller@example.com", "display_name": "Caller", "password": "CallerPassword-1234",
+        "remember_me": True,
+    })
+    assert registered.status_code == 201
+    registration_claims = jwt.decode(registered.json()["access_token"], options={"verify_signature": False, "verify_exp": False})
+    assert 29 * 60 <= registration_claims["exp"] - registration_claims["iat"] <= 31 * 60
+    assert registered.json()["refresh_token"]
+    registration_deadline = datetime.fromisoformat(registered.json()["session_expires_at"])
+    assert 29 * 24 * 60 * 60 <= registration_deadline.timestamp() - registration_claims["iat"] <= 31 * 24 * 60 * 60
 
 
 def test_reassignment_revokes_previous_responder_and_releases_resource(client):

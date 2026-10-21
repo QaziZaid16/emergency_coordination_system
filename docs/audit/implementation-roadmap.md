@@ -9,7 +9,7 @@
 5. Added administrative queues, dashboard totals, responder/resource management, recommendations from fresh accurate locations, transactional assignment/reassignment, cancellation/resolution, and audit review.
 6. Added responder task/status/update flows and one-time foreground location sharing.
 7. Added SQLite development/test support, PostgreSQL Docker Compose configuration, administrator provisioning, API tests, Flutter portal UI, and setup/security documentation.
-8. The local development API and Android client have been exercised together on a physical Android phone. Automated verification is recorded in `test-results.md`.
+8. The earlier shared API/SOS flow was exercised on a physical Android phone. This audit’s Remember Me changes passed automated and live local-API checks, but ADB reported no connected device for a fresh install/restart test; see `test-results.md`.
 
 ## Remaining before operational production use
 

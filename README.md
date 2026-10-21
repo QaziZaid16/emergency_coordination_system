@@ -56,7 +56,7 @@ The repository includes a ready-to-install APK at [`release/emergency-coordinati
 The current repository APK is a local demonstration release signed with the generated debug key, not a Play Store or production-signed build. Shared portals require building with the deployed API's HTTPS URL. SHA-256:
 
 ```text
-317aa90a47ad819e08e2770f11a45cc55fb493277526964582721f5558eb126b
+3262297dce56f1f2305216a47e88dc8cc6d4740b479bb98b6bb2d388cfeafda0
 ```
 
 To verify the downloaded APK, run `shasum -a 256 release/emergency-coordination-system-demo.apk` on macOS or `sha256sum release/emergency-coordination-system-demo.apk` on Linux.
@@ -65,7 +65,7 @@ To verify the downloaded APK, run `shasum -a 256 release/emergency-coordination-
 
 The app opens to a portal chooser. Choose **Admin Portal**, **User Portal**, or **Responder Portal** to sign in to the shared backend. New public registrations can create only user accounts. An administrator provisions the first admin with the backend CLI and creates responder accounts; changing the portal selection cannot elevate an account's stored role. **Open isolated training workspace** enters the original local-only simulator, whose sample records are stored separately on that device and are never imported into the shared database.
 
-The custom launcher mark is a response hub: a shield with a pulse line connected to four team nodes. Android uses adaptive icons on supported launchers, legacy density icons on older launchers, and a monochrome layer for themed icons on newer Android versions. The editable vector source is [`assets/brand/emergency-coordination-icon.svg`](assets/brand/emergency-coordination-icon.svg); matching PNG icons are used for the Flutter web/PWA assets.
+The custom mark combines a location pin with a centered coordination point and two linked response nodes in the app’s teal/coral palette. The identity appears in Android adaptive icons, legacy density assets, Android 13 themed monochrome icons, the native splash screen, portal headers, and web/PWA assets. The editable vector source is [`assets/brand/emergency-coordination-icon.svg`](assets/brand/emergency-coordination-icon.svg).
 
 The isolated training workspace has five tabs in the bottom navigation:
 
@@ -100,7 +100,7 @@ The mobile client compiles its API host into the app. For local USB-device devel
 flutter build apk --release --dart-define=API_BASE_URL=https://your-deployed-api.example
 ```
 
-If no API host is supplied, portal login shows that it is not configured. The app still offers the isolated training workspace. Flutter stores bearer tokens in platform secure storage; the backend checks role and session validity on protected requests. Clients refresh backend data every 12 seconds and show errors when they cannot synchronize.
+If no API host is supplied, portal login shows that it is not configured. The app still offers the isolated training workspace. The sign-in screen has an unchecked **Remember me on this device** option. When selected, the app stores a rotating refresh credential in Android secure storage, validates the server identity and role at startup, and restores the matching portal. Access tokens last 30 minutes; the remembered server session lasts up to 30 days by default, after which the user signs in again. Without the option, the token stays in memory and reopening the app requires sign-in. Clients refresh backend data every 12 seconds and show errors when they cannot synchronize.
 
 ### Initial account setup
 
@@ -120,7 +120,7 @@ If no API host is supplied, portal login shows that it is not configured. The ap
 
 ## Use the User Portal
 
-1. Choose **User Portal**. Register a user account or sign in. The server issues the role-bound session.
+1. Choose **User Portal**. Register a user account or sign in. The server issues the role-bound session. Check **Remember me on this device** only on a trusted personal device; this allows automatic return to the User Portal for up to 30 days.
 2. Tap **SOS · Request help**. The app requests device location permission and attempts a fresh GPS fix with a 12-second timeout. It shows the timestamp and accuracy.
 3. If permission is denied, location services are off, or a current fix is unavailable, enter an address, area, or landmark manually. The app never substitutes the training sample coordinates.
 4. Select Ambulance / Medical, Fire and Rescue, Police / Security, or Other Emergency. Add a short description, review the confirmation, then submit.
@@ -241,7 +241,7 @@ The built-in location choices have simulated coordinates around Mohali. **Landma
 
 - **Training Workspace:** stored as `emergency_workspace.json` in the Android app's private files directory. This contains only the simulator's local records.
 - **Shared portals:** incidents, accounts, assignments, resources, messages, and audit history live in the configured server database. Clearing the app does not remove those shared server records.
-- The app stores the bearer token using platform secure storage. Sign out to revoke that server session. Clearing app data removes local training data and the locally stored session, but leaves server records intact.
+- With Remember Me enabled, the app stores the short-lived access token and rotating refresh credential using platform secure storage. Without it, authentication remains in memory only and is not restored after closing the app. Sign out revokes the server session when reachable and always clears local credentials; if the server is offline, the app reports that remote revocation could not be confirmed. Clearing app data removes local training data and credentials, but leaves server records intact.
 - The sample workspace is never automatically migrated to the backend. Do not upload sample cases/coordinates as real operations.
 
 ## Run from source
@@ -386,7 +386,7 @@ The Android app uses a method channel in `MainActivity.kt` to open the optional 
 
 ### A shared portal says the service URL is missing or unavailable
 
-Build/run with `--dart-define=API_BASE_URL=...`. For local USB development, start the local backend, use `adb reverse tcp:8000 tcp:8000`, and set `http://127.0.0.1:8000` in a debug build. Release builds require HTTPS. Sign out/in after the access token expires; the service rejects expired or revoked sessions.
+Build/run with `--dart-define=API_BASE_URL=...`. For local USB development, start the local backend, use `adb reverse tcp:8000 tcp:8000`, and set `http://127.0.0.1:8000` in a debug build. Release builds require HTTPS. Remember Me is opt-in. The backend migration for rotating refresh credentials must be applied before enabling it on an existing database. The client restores sessions through the API, refreshes access tokens, and returns to sign-in after expiry or revocation. See [the deep audit](docs/audit/deep-bug-audit.md) for the session policy and remaining limitations.
 
 ### A changed APK will not install over an existing one
 

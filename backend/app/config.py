@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -7,6 +8,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/coordination.db"
     jwt_secret: str = ""
     access_token_minutes: int = 30
+    remember_me_days: int = Field(default=30, ge=1, le=365)
     cors_origins: str = "http://localhost:3000,http://localhost:8080"
     environment: str = "development"
 
