@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../data/api_client.dart';
 import '../data/operations_store.dart';
@@ -31,54 +32,27 @@ class CoordinationBrandMark extends StatelessWidget {
   final double size;
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(size * .22),
-    child: SizedBox.square(
-      dimension: size,
-      child: CustomPaint(painter: _CoordinationMarkPainter()),
+  Widget build(BuildContext context) => Semantics(
+    image: true,
+    label: 'Emergency Coordination System logo',
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(size * .22),
+      child: ColoredBox(
+        color: OpsColors.surfaceRaised,
+        child: SizedBox.square(
+          dimension: size,
+          child: Center(
+            child: SvgPicture.asset(
+              'assets/brand/official-logo.svg',
+              width: size * .52,
+              height: size * .70,
+              fit: BoxFit.contain,
+            ),
+          ),
+        ),
+      ),
     ),
   );
-}
-
-class _CoordinationMarkPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.save();
-    canvas.scale(size.width / 108, size.height / 108);
-    canvas.drawColor(const Color(0xFF102B35), BlendMode.src);
-    final connectors = Paint()
-      ..color = const Color(0xFF61C7B5)
-      ..strokeWidth = 2.8
-      ..strokeCap = StrokeCap.round;
-    canvas.drawLine(const Offset(24, 72), const Offset(39, 59), connectors);
-    canvas.drawLine(const Offset(84, 72), const Offset(69, 59), connectors);
-    final node = Paint()..color = const Color(0xFFE46E5C);
-    canvas.drawCircle(const Offset(22, 74), 5.5, node);
-    canvas.drawCircle(const Offset(86, 74), 5.5, node);
-    final pin = Path()
-      ..moveTo(54, 22.5)
-      ..cubicTo(39.6, 22.5, 31, 32.6, 31, 46.6)
-      ..cubicTo(31, 64, 54, 82.5, 54, 82.5)
-      ..cubicTo(54, 82.5, 77, 64, 77, 46.6)
-      ..cubicTo(77, 32.6, 68.4, 22.5, 54, 22.5)
-      ..close();
-    canvas.drawPath(pin, Paint()..color = const Color(0xFFEAF6F2));
-    canvas.drawCircle(
-      const Offset(54, 46),
-      13.2,
-      Paint()..color = const Color(0xFF126D67),
-    );
-    canvas.drawCircle(const Offset(54, 46), 5.2, node);
-    canvas.drawCircle(
-      const Offset(54, 46),
-      2,
-      Paint()..color = const Color(0xFFFFF9EF),
-    );
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class PortalEntryPage extends StatefulWidget {
@@ -753,7 +727,8 @@ class _UserPortalState extends State<UserPortal> {
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: OpsColors.primaryDark,
+            color: OpsColors.surfaceRaised,
+            border: Border.all(color: OpsColors.line),
             borderRadius: BorderRadius.circular(22),
           ),
           child: Column(
@@ -762,7 +737,7 @@ class _UserPortalState extends State<UserPortal> {
               const Text(
                 'Request emergency help',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: OpsColors.ink,
                   fontSize: 23,
                   fontWeight: FontWeight.w800,
                 ),
@@ -770,15 +745,15 @@ class _UserPortalState extends State<UserPortal> {
               const SizedBox(height: 8),
               const Text(
                 'Your request is sent to this coordination system. It does not directly call emergency services.',
-                style: TextStyle(color: Colors.white70),
+                style: TextStyle(color: OpsColors.inkSoft),
               ),
               const SizedBox(height: 18),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
                   style: FilledButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: OpsColors.primaryDark,
+                    backgroundColor: OpsColors.primary,
+                    foregroundColor: Colors.white,
                     minimumSize: const Size.fromHeight(58),
                   ),
                   onPressed: locating || composing ? null : beginRequest,

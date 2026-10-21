@@ -51,7 +51,7 @@ The repository contains the runnable API and role-specific workflows but no host
 
 ## UI and identity
 
-Material 3 tokens in `lib/presentation/design_system.dart` define the teal/coral palette, typography, controls, cards and touch targets. The same location-hub brand mark appears in the Android launcher, app entry, role dashboards, and splash screen. Android adaptive, legacy-density, themed monochrome, and PWA assets are kept aligned. The supported Flutter theme is light; a complete dark application theme has not been designed.
+Material 3 tokens in `lib/presentation/design_system.dart` define the reference-led dark palette, typography, spacing, controls, cards and touch targets. The supplied red-and-green SVG is rendered directly in Flutter; proportion-preserving derivatives appear in Android adaptive, legacy-density, themed monochrome, splash, and PWA assets. The app supports a cohesive dark theme across the training workspace and authenticated role portals.
 
 ## Remaining limits
 

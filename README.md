@@ -56,7 +56,7 @@ The repository includes a ready-to-install APK at [`release/emergency-coordinati
 The current repository APK is a local demonstration release signed with the generated debug key, not a Play Store or production-signed build. Shared portals require building with the deployed API's HTTPS URL. SHA-256:
 
 ```text
-3262297dce56f1f2305216a47e88dc8cc6d4740b479bb98b6bb2d388cfeafda0
+8b01f78da2837c1cdb27d6d00db166ff2a956f04747e4143d0674ca2d87d2141
 ```
 
 To verify the downloaded APK, run `shasum -a 256 release/emergency-coordination-system-demo.apk` on macOS or `sha256sum release/emergency-coordination-system-demo.apk` on Linux.
@@ -65,7 +65,7 @@ To verify the downloaded APK, run `shasum -a 256 release/emergency-coordination-
 
 The app opens to a portal chooser. Choose **Admin Portal**, **User Portal**, or **Responder Portal** to sign in to the shared backend. New public registrations can create only user accounts. An administrator provisions the first admin with the backend CLI and creates responder accounts; changing the portal selection cannot elevate an account's stored role. **Open isolated training workspace** enters the original local-only simulator, whose sample records are stored separately on that device and are never imported into the shared database.
 
-The custom mark combines a location pin with a centered coordination point and two linked response nodes in the app’s teal/coral palette. The identity appears in Android adaptive icons, legacy density assets, Android 13 themed monochrome icons, the native splash screen, portal headers, and web/PWA assets. The editable vector source is [`assets/brand/emergency-coordination-icon.svg`](assets/brand/emergency-coordination-icon.svg).
+The supplied official logo is a red location pin containing a green coordination cross. The original vector is [`assets/brand/official-logo.svg`](assets/brand/official-logo.svg); Flutter renders this SVG directly. Proportion-preserving derivatives are used for Android adaptive, legacy-density, themed monochrome, splash, and PWA icons.
 
 The isolated training workspace has five tabs in the bottom navigation:
 
@@ -82,8 +82,8 @@ The isolated training workspace has five tabs in the bottom navigation:
 - The overview puts the active workload first, then shows critical cases, assigned cases, and ready responders as separate scan-friendly counts. Select an incident card to go straight to its details.
 - The incident queue combines a text search for type, location, or description with status filters. Use the clear button to reset the search. Select a case to review its priority explanation, assignment, communication, and lifecycle actions.
 - Incident details show the response lifecycle as a progress track from **New** through **Resolved**, so the current stage and next action are easier to understand.
-- The shared interface uses deep teal for primary actions, warm coral for urgency emphasis, high contrast status labels, and consistent card and form styles. The training label remains visible in the top bar.
-- Content pages scroll vertically on smaller screens. Use the five-item bottom bar to move between Overview, Incidents, Responders, Resources, and Reports; use the top-right workspace menu to enter the separate responder demo view.
+- The shared interface follows the reference's charcoal surfaces, bright coral primary actions, rounded cards, and clear status colors. Critical, warning, success, and informational states retain distinct colors; the training banner identifies the isolated simulator.
+- Content pages scroll vertically on smaller screens. Use the five-item bottom bar to move between Overview, Incidents, Responders, Resources, and Reports; use the top-right workspace menu to enter the separate responder demo view. The page title stays on one line on compact layouts, and the overview banner identifies the training workspace.
 - Empty queues and reports explain that there is no matching content yet. Search and list filters can be cleared or changed without modifying saved records.
 
 Within the training workspace, the profile icon switches between the simulated **Coordinator console** and **Responder workspace**. That training-only menu is not a sign-in or a security boundary.

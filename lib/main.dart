@@ -11,6 +11,7 @@ import 'presentation/portals.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setSystemUIOverlayStyle(OpsTheme.systemOverlayStyle);
   const storageChannel = MethodChannel(
     'edu.cgc.university.emergency_coordination_system/storage',
   );
@@ -33,7 +34,7 @@ class EmergencyCoordinationApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
     title: 'Emergency Coordination',
     debugShowCheckedModeBanner: false,
-    theme: OpsTheme.light,
+    theme: OpsTheme.dark,
     home: PortalEntryPage(api: api, trainingStore: store),
   );
 }

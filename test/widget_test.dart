@@ -3,12 +3,14 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:http/testing.dart';
 import 'package:http/http.dart' as http;
 import 'package:emergency_coordination_system/data/api_client.dart';
 import 'package:emergency_coordination_system/data/operations_store.dart';
 import 'package:emergency_coordination_system/domain/models.dart';
 import 'package:emergency_coordination_system/presentation/home_page.dart';
+import 'package:emergency_coordination_system/presentation/design_system.dart';
 import 'package:emergency_coordination_system/presentation/portals.dart';
 
 void main() {
@@ -26,6 +28,7 @@ void main() {
   testWidgets('admin sign-in explains backend configuration', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
+        theme: OpsTheme.dark,
         home: PortalLoginPage(
           api: ApiClient(baseUrl: ''),
           role: 'admin',
@@ -97,6 +100,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: OpsTheme.dark,
           home: PortalEntryPage(api: api, trainingStore: store),
         ),
       );
@@ -151,6 +155,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: OpsTheme.dark,
         home: PortalEntryPage(
           api: api,
           trainingStore: OperationsStore(
@@ -179,6 +184,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       MaterialApp(
+        theme: OpsTheme.dark,
         home: MediaQuery(
           data: const MediaQueryData(textScaler: TextScaler.linear(1.35)),
           child: PortalLoginPage(
@@ -192,6 +198,80 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Sign in to Responder Portal'), findsOneWidget);
     expect(find.text('Remember me on this device'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('official SVG brand mark renders with the dark design system', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: OpsTheme.dark,
+        home: const Scaffold(
+          body: Center(child: CoordinationBrandMark(size: 72)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SvgPicture), findsOneWidget);
+    expect(
+      find.bySemanticsLabel('Emergency Coordination System logo'),
+      findsOneWidget,
+    );
+    expect(OpsTheme.dark.brightness, Brightness.dark);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('dark training workspace remains usable on a compact display', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final store = OperationsStore(File('/tmp/dark-training-widget.json'));
+    await tester.runAsync(store.load);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: OpsTheme.dark,
+        home: MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(1.25)),
+          child: HomePage(store: store),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 250));
+    final titles = [
+      'Operations overview',
+      'Incident queue',
+      'Response teams',
+      'Resource board',
+      'Activity & reports',
+    ];
+    for (var destination = 0; destination < titles.length; destination++) {
+      final navigation = tester.widget<NavigationBar>(
+        find.byType(NavigationBar),
+      );
+      navigation.onDestinationSelected!(destination);
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(find.text(titles[destination]), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: titles[destination]);
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: OpsTheme.dark,
+        home: IncidentDetailPage(
+          store: store,
+          incident: store.activeIncidents.first,
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('CASE LIFECYCLE'), findsOneWidget);
+    expect(find.text('Responder recommendation'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

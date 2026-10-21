@@ -19,7 +19,7 @@ Color statusColor(String s) =>
     s.toLowerCase().contains('available') || s == 'Resolved'
     ? OpsColors.success
     : s.toLowerCase().contains('off')
-    ? const Color(0xFF6D7785)
+    ? OpsColors.muted
     : OpsColors.blue;
 
 class HomePage extends StatefulWidget {
@@ -43,35 +43,10 @@ class _HomePageState extends State<HomePage> {
     animation: widget.store,
     builder: (context, _) => Scaffold(
       appBar: AppBar(
-        title: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(titles[index]),
-            const SizedBox(height: 2),
-            Row(
-              children: [
-                Container(
-                  width: 7,
-                  height: 7,
-                  decoration: const BoxDecoration(
-                    color: OpsColors.accent,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                const Text(
-                  'TRAINING WORKSPACE',
-                  style: TextStyle(
-                    fontSize: 9,
-                    letterSpacing: 1.1,
-                    color: _muted,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-          ],
+        title: Text(
+          titles[index],
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
         actions: [
           PopupMenuButton<String>(
@@ -172,9 +147,14 @@ class PagePad extends StatelessWidget {
   final Widget child;
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
-    padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
+    padding: const EdgeInsets.fromLTRB(
+      OpsSpace.lg,
+      OpsSpace.sm,
+      OpsSpace.lg,
+      OpsSpace.xxl,
+    ),
     child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 820),
+      constraints: const BoxConstraints(maxWidth: OpsSpace.contentMax),
       child: child,
     ),
   );
@@ -344,7 +324,7 @@ class _TrainingBanner extends StatelessWidget {
     width: double.infinity,
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: OpsColors.primaryDark,
+      color: OpsColors.surfaceRaised,
       borderRadius: BorderRadius.circular(20),
     ),
     child: Row(
@@ -383,7 +363,7 @@ class _TrainingBanner extends StatelessWidget {
             ],
           ),
         ),
-        const Icon(Icons.shield_outlined, color: Color(0xFF9AD5CC), size: 23),
+        const Icon(Icons.shield_outlined, color: OpsColors.success, size: 23),
       ],
     ),
   );
@@ -588,7 +568,7 @@ class IncidentTile extends StatelessWidget {
         .where((r) => r.id == incident.responderId)
         .firstOrNull;
     return Material(
-      color: Colors.white,
+      color: OpsColors.surface,
       borderRadius: BorderRadius.circular(15),
       child: InkWell(
         onTap: onTap,
@@ -637,7 +617,7 @@ class IncidentTile extends StatelessWidget {
                   Icon(
                     Icons.person_outline,
                     size: 15,
-                    color: responder == null ? _muted : const Color(0xFF3569A8),
+                    color: responder == null ? _muted : OpsColors.blue,
                   ),
                   const SizedBox(width: 5),
                   Expanded(
@@ -757,7 +737,7 @@ class ResponderRow extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: compact ? 17 : 21,
-            backgroundColor: const Color(0xFFF1EDEA),
+            backgroundColor: OpsColors.surfaceRaised,
             child: Text(
               responder.name.split(' ').map((x) => x[0]).take(2).join(),
               style: TextStyle(
@@ -925,21 +905,21 @@ class ReportsPage extends StatelessWidget {
                   label: 'Total cases',
                   value: '$total',
                   icon: Icons.assignment_outlined,
-                  accent: const Color(0xFF3569A8),
+                  accent: OpsColors.blue,
                   width: (constraints.maxWidth - 10) / 2,
                 ),
                 MetricCard(
                   label: 'Resolved',
                   value: '$resolved',
                   icon: Icons.task_alt_outlined,
-                  accent: const Color(0xFF327A5B),
+                  accent: OpsColors.success,
                   width: (constraints.maxWidth - 10) / 2,
                 ),
                 MetricCard(
                   label: 'Avg. resolution',
                   value: avg,
                   icon: Icons.schedule_outlined,
-                  accent: const Color(0xFFAD7411),
+                  accent: OpsColors.warning,
                   width: (constraints.maxWidth - 10) / 2,
                 ),
                 MetricCard(
@@ -947,7 +927,7 @@ class ReportsPage extends StatelessWidget {
                   value:
                       '${store.responders.where((r) => r.status == ResponderStatus.available).length}',
                   icon: Icons.groups_outlined,
-                  accent: const Color(0xFF327A5B),
+                  accent: OpsColors.success,
                   width: (constraints.maxWidth - 10) / 2,
                 ),
               ],
@@ -1029,7 +1009,7 @@ class ActivityRow extends StatelessWidget {
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Icon(Icons.circle, size: 8, color: Color(0xFFB64032)),
+        const Icon(Icons.circle, size: 8, color: OpsColors.primary),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
@@ -1116,13 +1096,13 @@ class StorageWarning extends StatelessWidget {
     margin: const EdgeInsets.only(bottom: 12),
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
-      color: OpsColors.accentWash,
-      border: Border.all(color: OpsColors.accent.withValues(alpha: .35)),
+      color: OpsColors.criticalWash,
+      border: Border.all(color: OpsColors.critical.withValues(alpha: .35)),
       borderRadius: BorderRadius.circular(12),
     ),
     child: Text(
       text,
-      style: const TextStyle(color: Color(0xFF8A372B), fontSize: 12),
+      style: const TextStyle(color: OpsColors.critical, fontSize: 12),
     ),
   );
 }
@@ -1479,7 +1459,7 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                           children: [
                             const Icon(
                               Icons.person_pin_circle_outlined,
-                              color: Color(0xFF3569A8),
+                              color: OpsColors.blue,
                             ),
                             const SizedBox(width: 10),
                             Expanded(
@@ -1747,7 +1727,7 @@ class MessageBubble extends StatelessWidget {
     margin: const EdgeInsets.only(bottom: 9),
     padding: const EdgeInsets.all(10),
     decoration: BoxDecoration(
-      color: const Color(0xFFF5F6F8),
+      color: OpsColors.surfaceRaised,
       borderRadius: BorderRadius.circular(12),
     ),
     child: Column(
@@ -1851,7 +1831,7 @@ class _ResponderWorkspaceState extends State<ResponderWorkspace> {
                   const Icon(
                     Icons.task_alt_outlined,
                     size: 36,
-                    color: Color(0xFF327A5B),
+                    color: OpsColors.success,
                   ),
                   const SizedBox(height: 8),
                   const Text(
