@@ -78,10 +78,27 @@ void main() {
         'latitude': 30.7269108,
         'longitude': 76.6517281,
         'accuracy_m': 13,
+        'analysis': {
+          'status': 'ready',
+          'provider': 'rules_baseline',
+          'result': {
+            'summary': 'Bridge collapse',
+            'hazards_to_verify': [
+              {'statement': 'collapse'},
+            ],
+            'explanation': 'Source-matched text only.',
+          },
+        },
       };
       final api = ApiClient(
         baseUrl: 'https://api.example.test',
         client: MockClient((request) async {
+          if (request.url.path.endsWith('/duplicates')) {
+            return http.Response(
+              jsonEncode({'candidates': [], 'auto_merge': false}),
+              200,
+            );
+          }
           if (request.url.path.endsWith('/incidents')) {
             return http.Response(jsonEncode([incident]), 200);
           }
@@ -139,9 +156,73 @@ void main() {
       expect(find.text('Priority explanation'), findsOneWidget);
       expect(find.text('GPS coordinates'), findsOneWidget);
       expect(find.textContaining('30.7269108'), findsOneWidget);
+      expect(find.textContaining('Rules-based text scan'), findsOneWidget);
+      expect(find.text('No similar reports found for review.'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('admin copilot returns a cited read-only operational answer', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = ApiClient(
+      baseUrl: 'https://api.example.test',
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/dashboard')) {
+          return http.Response('{}', 200);
+        }
+        if (request.url.path.endsWith('/incidents')) {
+          return http.Response('[]', 200);
+        }
+        if (request.url.path.endsWith('/copilot')) {
+          return http.Response(
+            jsonEncode({
+              'answer': '1 report awaits assignment: ECS-CASE01.',
+              'intent': 'unassigned_incidents',
+              'sources': [
+                {
+                  'reference': 'ECS-CASE01',
+                  'emergency_type': 'Fire and Rescue',
+                },
+              ],
+              'read_only': true,
+              'generated_by': 'rules_based',
+            }),
+            200,
+          );
+        }
+        return http.Response('[]', 200);
+      }),
+    );
+    final session = ApiSession(
+      token: 'admin-token',
+      expiresAt: DateTime.now().add(const Duration(hours: 1)),
+      sessionExpiresAt: DateTime.now().add(const Duration(days: 1)),
+      user: {'id': 'admin-1', 'email': 'admin@example.test', 'role': 'admin'},
+      rememberMe: false,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: OpsTheme.dark,
+        home: AdminPortal(api: api, session: session, onLogout: () {}),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Copilot'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Unassigned reports'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('ECS-CASE01'), findsNWidgets(2));
+    expect(
+      find.textContaining('Database answer · rules-based'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'remembered user restores only to the user portal and logout returns to chooser',

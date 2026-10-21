@@ -1063,10 +1063,14 @@ class _AdminPortalState extends State<AdminPortal> {
     bool reassign = false,
   }) async {
     try {
-      final available = (await widget.api.getList(
+      final recommendationResult = await widget.api.get(
         '/admin/incidents/${incident['id']}/recommendations',
         widget.session,
-      ));
+      );
+      final available =
+          (recommendationResult['eligible_responders'] as List? ?? const [])
+              .map((row) => Map<String, dynamic>.from(row as Map))
+              .toList();
       if (!mounted) return;
       if (available.isEmpty) {
         setState(
@@ -1077,21 +1081,38 @@ class _AdminPortalState extends State<AdminPortal> {
       final selected = await showDialog<Map<String, dynamic>>(
         context: context,
         builder: (context) => SimpleDialog(
-          title: const Text('Choose eligible responder'),
+          title: const Text('Review responder recommendations'),
           children: [
-            for (final raw in available)
+            for (var index = 0; index < available.length; index++)
               Builder(
                 builder: (context) {
-                  final row = Map<String, dynamic>.from(raw as Map);
+                  final row = available[index];
                   return SimpleDialogOption(
                     onPressed: () => Navigator.pop(context, row),
-                    child: ListTile(
-                      title: Text(row['display_name'].toString()),
-                      subtitle: Text(
-                        row['distance_km'] == null
-                            ? 'Location unavailable · ${row['capabilities'].join(', ')}'
-                            : '${(row['distance_km'] as num).toStringAsFixed(1)} km · ${row['capabilities'].join(', ')}',
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                row['display_name'].toString(),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            if (recommendationResult['recommended_responder_id'] ==
+                                row['responder_id'])
+                              const Chip(
+                                label: Text('Top recommendation'),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                          ],
+                        ),
+                        Text('Recommendation score: ${row['score']}/100'),
+                        Text((row['reasons'] as List? ?? const []).join(' · ')),
+                      ],
                     ),
                   );
                 },
@@ -1105,10 +1126,11 @@ class _AdminPortalState extends State<AdminPortal> {
       );
       if (selected == null) return;
       if (!mounted) return;
-      final availableResources = resources
-          .map((row) => Map<String, dynamic>.from(row as Map))
-          .where((row) => (row['available'] as num? ?? 0) > 0)
-          .toList();
+      final availableResources =
+          (recommendationResult['compatible_resources'] as List? ?? const [])
+              .map((row) => Map<String, dynamic>.from(row as Map))
+              .where((row) => (row['available'] as num? ?? 0) > 0)
+              .toList();
       String? resourceId;
       if (availableResources.isNotEmpty) {
         final chosenResource = await showDialog<String>(
@@ -1366,7 +1388,7 @@ class _AdminPortalState extends State<AdminPortal> {
 
   @override
   Widget build(BuildContext context) => DefaultTabController(
-    length: 6,
+    length: 7,
     child: Scaffold(
       appBar: AppBar(
         leading: const Padding(
@@ -1395,6 +1417,7 @@ class _AdminPortalState extends State<AdminPortal> {
             Tab(text: 'Users'),
             Tab(text: 'Resources'),
             Tab(text: 'Audit'),
+            Tab(text: 'Copilot'),
           ],
         ),
       ),
@@ -1410,9 +1433,13 @@ class _AdminPortalState extends State<AdminPortal> {
                   data: dashboard,
                   incidents: incidents,
                   onIncident: (item) => assign(item),
+                  api: widget.api,
+                  session: widget.session,
                 ),
                 _AdminIncidents(
                   incidents: incidents,
+                  api: widget.api,
+                  session: widget.session,
                   onRefresh: refresh,
                   onAssign: (item) => assign(item),
                   onReassign: (item) => assign(item, reassign: true),
@@ -1457,6 +1484,7 @@ class _AdminPortalState extends State<AdminPortal> {
                   onActiveChanged: setResourceActive,
                 ),
                 _AdminAudit(rows: audit),
+                _AdminCopilot(api: widget.api, session: widget.session),
               ],
             ),
           ),
@@ -1466,15 +1494,166 @@ class _AdminPortalState extends State<AdminPortal> {
   );
 }
 
+class _AdminCopilot extends StatefulWidget {
+  const _AdminCopilot({required this.api, required this.session});
+  final ApiClient api;
+  final ApiSession session;
+
+  @override
+  State<_AdminCopilot> createState() => _AdminCopilotState();
+}
+
+class _AdminCopilotState extends State<_AdminCopilot> {
+  final question = TextEditingController();
+  Map<String, dynamic>? response;
+  String? error;
+  bool loading = false;
+
+  @override
+  void dispose() {
+    question.dispose();
+    super.dispose();
+  }
+
+  Future<void> ask() async {
+    if (question.text.trim().length < 2 || loading) return;
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final result = await widget.api.post(
+        '/admin/copilot',
+        widget.session,
+        body: {'question': question.text.trim()},
+      );
+      if (mounted) setState(() => response = result);
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(16),
+    children: [
+      Text(
+        'Operations Copilot',
+        style: Theme.of(context).textTheme.headlineSmall,
+      ),
+      const SizedBox(height: 6),
+      const Text(
+        'Read-only answers from current coordination records. It cannot assign responders or change incident status.',
+      ),
+      const SizedBox(height: 14),
+      TextField(
+        controller: question,
+        maxLength: 240,
+        textInputAction: TextInputAction.send,
+        onSubmitted: (_) => ask(),
+        decoration: InputDecoration(
+          labelText: 'Ask about operations',
+          hintText: 'For example: Which reports are unassigned?',
+          suffixIcon: IconButton(
+            tooltip: 'Ask copilot',
+            onPressed: loading ? null : ask,
+            icon: loading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.send),
+          ),
+        ),
+      ),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final sample in const [
+            'Unassigned reports',
+            'Responder availability',
+            'Resource utilization',
+          ])
+            ActionChip(
+              label: Text(sample),
+              onPressed: loading
+                  ? null
+                  : () {
+                      question.text = sample;
+                      ask();
+                    },
+            ),
+        ],
+      ),
+      if (error != null) ...[
+        const SizedBox(height: 12),
+        _FeedbackBox(text: error!, color: OpsColors.critical),
+      ],
+      if (response != null) ...[
+        const SizedBox(height: 14),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.fact_check_outlined),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Database answer · rules-based',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(response!['answer']?.toString() ?? 'No answer returned'),
+                if ((response!['sources'] as List? ?? const []).isNotEmpty) ...[
+                  const Divider(height: 24),
+                  Text(
+                    'Sources',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 6),
+                  for (final source in response!['sources'] as List)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        source is Map && source['reference'] != null
+                            ? '${source['reference']} · ${source['status'] ?? source['emergency_type'] ?? source['summary'] ?? ''}'
+                            : source is Map && source['name'] != null
+                            ? '${source['name']} · ${source['availability']} · ${(source['capabilities'] as List? ?? const []).join(', ')}'
+                            : source.toString(),
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    ],
+  );
+}
+
 class _AdminDashboard extends StatelessWidget {
   const _AdminDashboard({
     required this.data,
     required this.incidents,
     required this.onIncident,
+    required this.api,
+    required this.session,
   });
   final Map<String, dynamic> data;
   final List<dynamic> incidents;
   final ValueChanged<Map<String, dynamic>> onIncident;
+  final ApiClient api;
+  final ApiSession session;
   @override
   Widget build(BuildContext context) => ListView(
     padding: const EdgeInsets.all(16),
@@ -1549,6 +1728,8 @@ class _AdminDashboard extends StatelessWidget {
           onTap: () => _showAdminIncidentDetails(
             context,
             Map<String, dynamic>.from(raw),
+            api: api,
+            session: session,
           ),
           action: FilledButton.tonal(
             onPressed: () => onIncident(Map<String, dynamic>.from(raw)),
@@ -1562,6 +1743,8 @@ class _AdminDashboard extends StatelessWidget {
 class _AdminIncidents extends StatefulWidget {
   const _AdminIncidents({
     required this.incidents,
+    required this.api,
+    required this.session,
     required this.onRefresh,
     required this.onAssign,
     required this.onReassign,
@@ -1569,6 +1752,8 @@ class _AdminIncidents extends StatefulWidget {
     required this.onCancel,
   });
   final List<dynamic> incidents;
+  final ApiClient api;
+  final ApiSession session;
   final VoidCallback onRefresh;
   final ValueChanged<Map<String, dynamic>> onAssign, onReassign, onResolve;
   final ValueChanged<Map<String, dynamic>> onCancel;
@@ -1681,7 +1866,12 @@ class _AdminIncidentsState extends State<_AdminIncidents> {
             return _IncidentCard(
               item: item,
               compactLocation: true,
-              onTap: () => _showAdminIncidentDetails(context, item),
+              onTap: () => _showAdminIncidentDetails(
+                context,
+                item,
+                api: widget.api,
+                session: widget.session,
+              ),
               action: Wrap(
                 spacing: 8,
                 runSpacing: 4,
@@ -2180,6 +2370,14 @@ class _ResponderPortalState extends State<ResponderPortal> {
                       Text('${task['reference']} · ${task['priority']}'),
                       const SizedBox(height: 5),
                       Text(task['description'].toString()),
+                      if (task['analysis'] is Map &&
+                          (task['analysis'] as Map)['status'] == 'ready' &&
+                          (task['analysis'] as Map)['result'] is Map)
+                        _responderAnalysisPreview(
+                          context,
+                          (task['analysis'] as Map)['result'] as Map,
+                          (task['analysis'] as Map)['provider']?.toString(),
+                        ),
                       const SizedBox(height: 5),
                       Text(task['location_label'].toString()),
                       if (task['latitude'] != null && task['longitude'] != null)
@@ -2396,69 +2594,276 @@ class _InfoTag extends StatelessWidget {
 
 Future<void> _showAdminIncidentDetails(
   BuildContext context,
-  Map<String, dynamic> item,
-) => showModalBottomSheet<void>(
+  Map<String, dynamic> item, {
+  required ApiClient api,
+  required ApiSession session,
+}) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
   showDragHandle: true,
   builder: (context) => SafeArea(
-    child: SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        4,
-        20,
-        20 + MediaQuery.viewInsetsOf(context).bottom,
+    child: _AdminIncidentDetailsContent(item: item, api: api, session: session),
+  ),
+);
+
+class _AdminIncidentDetailsContent extends StatefulWidget {
+  const _AdminIncidentDetailsContent({
+    required this.item,
+    required this.api,
+    required this.session,
+  });
+  final Map<String, dynamic> item;
+  final ApiClient api;
+  final ApiSession session;
+
+  @override
+  State<_AdminIncidentDetailsContent> createState() =>
+      _AdminIncidentDetailsContentState();
+}
+
+class _AdminIncidentDetailsContentState
+    extends State<_AdminIncidentDetailsContent> {
+  late Future<Map<String, dynamic>> duplicates = widget.api.get(
+    '/admin/incidents/${widget.item['id']}/duplicates',
+    widget.session,
+  );
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+    padding: EdgeInsets.fromLTRB(
+      20,
+      4,
+      20,
+      20 + MediaQuery.viewInsetsOf(context).bottom,
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          widget.item['emergency_type']?.toString() ?? 'Incident details',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 8,
+          children: [
+            Text(widget.item['reference']?.toString() ?? 'No reference'),
+            _StatusChip(widget.item['status']?.toString() ?? 'Unknown'),
+          ],
+        ),
+        const Divider(height: 24),
+        _detailLine(context, 'Priority', widget.item['priority']?.toString()),
+        _detailLine(
+          context,
+          'Severity',
+          '${widget.item['severity'] ?? '—'} / 5',
+        ),
+        _detailLine(context, 'Urgency', '${widget.item['urgency'] ?? '—'} / 5'),
+        _detailLine(
+          context,
+          'Reported',
+          _formatTimestamp(widget.item['created_at']),
+        ),
+        _detailLine(
+          context,
+          'Description',
+          widget.item['description']?.toString(),
+        ),
+        _detailLine(
+          context,
+          'Location',
+          _incidentListLocation(widget.item['location_label'])
+              .replaceFirst(' · tap for coordinates', ''),
+        ),
+        _detailLine(
+          context,
+          'Responder',
+          widget.item['responder_name']?.toString(),
+        ),
+        if (widget.item['priority_reason'] != null)
+          _detailLine(
+            context,
+            'Priority explanation',
+            widget.item['priority_reason'].toString(),
+          ),
+        if (widget.item['latitude'] != null && widget.item['longitude'] != null)
+          _detailLine(
+            context,
+            'GPS coordinates',
+            '${widget.item['latitude']}, ${widget.item['longitude']} (±${(widget.item['accuracy_m'] as num?)?.round() ?? 'unknown'} m)',
+          ),
+        _analysisDetails(context, widget.item['analysis']),
+        const Divider(height: 24),
+        Text(
+          'Possible duplicate reports',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 6),
+        FutureBuilder<Map<String, dynamic>>(
+          future: duplicates,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const LinearProgressIndicator();
+            }
+            if (snapshot.hasError) {
+              return const Text('Duplicate check is unavailable.');
+            }
+            final candidates =
+                snapshot.data?['candidates'] as List? ?? const [];
+            if (candidates.isEmpty) {
+              return const Text('No similar reports found for review.');
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'These are review suggestions only. Reports are never merged automatically.',
+                ),
+                for (final candidate in candidates)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.content_copy_outlined),
+                    title: Text(
+                      '${candidate['reference']} · ${candidate['status']}',
+                    ),
+                    subtitle: Text(candidate['explanation'].toString()),
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _analysisDetails(BuildContext context, Object? raw) {
+  if (raw is! Map) {
+    return const Card(
+      child: ListTile(
+        title: Text('Incident analysis'),
+        subtitle: Text(
+          'Not available yet. The report was saved independently.',
+        ),
       ),
+    );
+  }
+  final status = raw['status']?.toString() ?? 'pending';
+  if (status != 'ready' || raw['result'] is! Map) {
+    return Card(
+      child: ListTile(
+        title: const Text('Incident analysis'),
+        subtitle: Text(
+          status == 'pending' || status == 'processing'
+              ? 'Analysis is processing. The report and deterministic dispatch priority remain available.'
+              : 'Analysis is unavailable. Use the original report and deterministic priority.',
+        ),
+      ),
+    );
+  }
+  final result = Map<String, dynamic>.from(raw['result'] as Map);
+  final provider = raw['provider'] == 'rules_baseline'
+      ? 'Rules-based text scan'
+      : 'AI suggestion';
+  final hazards = (result['hazards_to_verify'] as List? ?? const [])
+      .map((item) => item is Map ? item['statement']?.toString() : null)
+      .whereType<String>()
+      .toList();
+  final missing = (result['missing_information'] as List? ?? const [])
+      .whereType<String>()
+      .toList();
+  return Card(
+    child: Padding(
+      padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            item['emergency_type']?.toString() ?? 'Incident details',
-            style: Theme.of(context).textTheme.headlineSmall,
+            'Decision support · $provider · human review required',
+            style: Theme.of(context).textTheme.titleSmall,
           ),
-          const SizedBox(height: 4),
-          Wrap(
-            spacing: 8,
-            children: [
-              Text(item['reference']?.toString() ?? 'No reference'),
-              _StatusChip(item['status']?.toString() ?? 'Unknown'),
-            ],
-          ),
-          const Divider(height: 24),
-          _detailLine(context, 'Priority', item['priority']?.toString()),
-          _detailLine(context, 'Severity', '${item['severity'] ?? '—'} / 5'),
-          _detailLine(context, 'Urgency', '${item['urgency'] ?? '—'} / 5'),
-          _detailLine(
-            context,
-            'Reported',
-            _formatTimestamp(item['created_at']),
-          ),
-          _detailLine(context, 'Description', item['description']?.toString()),
-          _detailLine(
-            context,
-            'Location',
-            _incidentListLocation(item['location_label'])
-                .replaceFirst(' · tap for coordinates', ''),
-          ),
-          _detailLine(context, 'Responder', item['responder_name']?.toString()),
-          if (item['priority_reason'] != null)
-            _detailLine(
-              context,
-              'Priority explanation',
-              item['priority_reason'].toString(),
+          const SizedBox(height: 6),
+          Text(result['summary']?.toString() ?? 'No summary provided'),
+          if (result['suggested_category'] != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Suggested category for review: ${result['suggested_category']}',
             ),
-          if (item['latitude'] != null && item['longitude'] != null)
-            _detailLine(
-              context,
-              'GPS coordinates',
-              '${item['latitude']}, ${item['longitude']} (±${(item['accuracy_m'] as num?)?.round() ?? 'unknown'} m)',
+          ],
+          if (hazards.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text('Reported terms to verify: ${hazards.join(', ')}'),
+          ],
+          if (missing.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text('Questions for review: ${missing.join(' · ')}'),
+          ],
+          if (result['confidence_note'] != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              result['confidence_note'].toString(),
+              style: Theme.of(context).textTheme.bodySmall,
             ),
+          ],
+          if (result['explanation'] != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              result['explanation'].toString(),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
         ],
       ),
     ),
-  ),
-);
+  );
+}
+
+Widget _responderAnalysisPreview(
+  BuildContext context,
+  Map result,
+  String? provider,
+) {
+  final hazards = (result['hazards_to_verify'] as List? ?? const [])
+      .map((item) => item is Map ? item['statement']?.toString() : null)
+      .whereType<String>()
+      .toList();
+  final missing = (result['missing_information'] as List? ?? const [])
+      .whereType<String>()
+      .toList();
+  return Card(
+    color: OpsColors.surfaceRaised,
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            provider == 'rules_baseline'
+                ? 'Report notes · rules-based scan'
+                : 'Report notes · AI suggestion',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+          const SizedBox(height: 4),
+          Text(result['summary']?.toString() ?? 'No summary available'),
+          if (hazards.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text('Verify from original report: ${hazards.join(', ')}'),
+          ],
+          if (missing.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text('Questions to check: ${missing.join(' · ')}'),
+          ],
+          const SizedBox(height: 4),
+          Text(
+            'Decision support only · check the caller’s original report.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
 Widget _detailLine(BuildContext context, String label, String? value) =>
     Padding(

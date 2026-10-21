@@ -1,7 +1,19 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -23,12 +35,16 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(512))
     role: Mapped[str] = mapped_column(String(16), index=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc
+    )
 
 
 class ResponderProfile(Base):
     __tablename__ = "responders"
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
     capabilities: Mapped[list[str]] = mapped_column(JSON, default=list)
     available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     latitude: Mapped[float | None]
@@ -42,9 +58,17 @@ class Incident(Base):
     __table_args__ = (
         CheckConstraint("severity BETWEEN 1 AND 5", name="ck_incident_severity"),
         CheckConstraint("urgency BETWEEN 1 AND 5", name="ck_incident_urgency"),
-        CheckConstraint("latitude IS NULL OR (latitude BETWEEN -90 AND 90)", name="ck_incident_latitude"),
-        CheckConstraint("longitude IS NULL OR (longitude BETWEEN -180 AND 180)", name="ck_incident_longitude"),
-        UniqueConstraint("reporter_id", "idempotency_key", name="uq_incident_reporter_idempotency"),
+        CheckConstraint(
+            "latitude IS NULL OR (latitude BETWEEN -90 AND 90)",
+            name="ck_incident_latitude",
+        ),
+        CheckConstraint(
+            "longitude IS NULL OR (longitude BETWEEN -180 AND 180)",
+            name="ck_incident_longitude",
+        ),
+        UniqueConstraint(
+            "reporter_id", "idempotency_key", name="uq_incident_reporter_idempotency"
+        ),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     reference: Mapped[str] = mapped_column(String(16), unique=True, index=True)
@@ -63,13 +87,40 @@ class Incident(Base):
     priority_reason: Mapped[str] = mapped_column(String(240))
     status: Mapped[str] = mapped_column(String(24), default="Submitted", index=True)
     idempotency_key: Mapped[str] = mapped_column(String(128))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+    )
+
+
+class IncidentAnalysis(Base):
+    __tablename__ = "incident_analyses"
+    incident_id: Mapped[str] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), primary_key=True
+    )
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    provider: Mapped[str] = mapped_column(String(64), default="pending")
+    model: Mapped[str | None] = mapped_column(String(120))
+    result: Mapped[dict | None] = mapped_column(JSON)
+    validation_outcome: Mapped[str] = mapped_column(String(32), default="pending")
+    usage_tokens: Mapped[int | None] = mapped_column(Integer)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Resource(Base):
     __tablename__ = "resources"
-    __table_args__ = (CheckConstraint("quantity >= 0 AND allocated >= 0 AND allocated <= quantity", name="ck_resource_quantity"),)
+    __table_args__ = (
+        CheckConstraint(
+            "quantity >= 0 AND allocated >= 0 AND allocated <= quantity",
+            name="ck_resource_quantity",
+        ),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(120), unique=True)
     kind: Mapped[str] = mapped_column(String(48), index=True)
@@ -81,12 +132,28 @@ class Resource(Base):
 class Assignment(Base):
     __tablename__ = "assignments"
     __table_args__ = (
-        Index("uq_active_assignment_responder", "responder_id", unique=True,
-              sqlite_where=text("status IN ('Assigned','Accepted','En Route','On Scene')"),
-              postgresql_where=text("status IN ('Assigned','Accepted','En Route','On Scene')")),
-        Index("uq_active_assignment_incident", "incident_id", unique=True,
-              sqlite_where=text("status IN ('Assigned','Accepted','En Route','On Scene')"),
-              postgresql_where=text("status IN ('Assigned','Accepted','En Route','On Scene')")),
+        Index(
+            "uq_active_assignment_responder",
+            "responder_id",
+            unique=True,
+            sqlite_where=text(
+                "status IN ('Assigned','Accepted','En Route','On Scene')"
+            ),
+            postgresql_where=text(
+                "status IN ('Assigned','Accepted','En Route','On Scene')"
+            ),
+        ),
+        Index(
+            "uq_active_assignment_incident",
+            "incident_id",
+            unique=True,
+            sqlite_where=text(
+                "status IN ('Assigned','Accepted','En Route','On Scene')"
+            ),
+            postgresql_where=text(
+                "status IN ('Assigned','Accepted','En Route','On Scene')"
+            ),
+        ),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     incident_id: Mapped[str] = mapped_column(ForeignKey("incidents.id"), index=True)
@@ -94,19 +161,27 @@ class Assignment(Base):
     resource_id: Mapped[str | None] = mapped_column(ForeignKey("resources.id"))
     status: Mapped[str] = mapped_column(String(24), default="Assigned", index=True)
     assigned_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
-    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+    )
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class IncidentUpdate(Base):
     __tablename__ = "incident_updates"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    incident_id: Mapped[str] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), index=True)
+    incident_id: Mapped[str] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
     actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     kind: Mapped[str] = mapped_column(String(24))
     message: Mapped[str] = mapped_column(String(1000))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, index=True
+    )
 
 
 class AuditEvent(Base):
@@ -117,7 +192,9 @@ class AuditEvent(Base):
     entity_type: Mapped[str] = mapped_column(String(32))
     entity_id: Mapped[str] = mapped_column(String(36), index=True)
     details: Mapped[dict] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, index=True
+    )
 
 
 class AuthSession(Base):
@@ -132,7 +209,9 @@ class AuthSession(Base):
         ),
     )
     jti: Mapped[str] = mapped_column(String(36), primary_key=True)
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     refresh_token_hash: Mapped[str | None] = mapped_column(String(64))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

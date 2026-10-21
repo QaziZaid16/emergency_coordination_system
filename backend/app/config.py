@@ -11,6 +11,17 @@ class Settings(BaseSettings):
     remember_me_days: int = Field(default=30, ge=1, le=365)
     cors_origins: str = "http://localhost:3000,http://localhost:8080"
     environment: str = "development"
+    ai_provider: str = "none"
+    ai_base_url: str = ""
+    ai_api_key: str = ""
+    ai_model: str = ""
+    ai_timeout_seconds: float = Field(default=8.0, ge=1, le=30)
+    ai_max_attempts: int = Field(default=1, ge=1, le=3)
+    ai_rate_limit_per_minute: int = Field(default=60, ge=1, le=600)
+    ai_share_incident_location: bool = False
+    recommendation_distance_weight: int = Field(default=45, ge=0, le=100)
+    recommendation_capability_weight: int = Field(default=35, ge=0, le=100)
+    recommendation_workload_weight: int = Field(default=20, ge=0, le=100)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

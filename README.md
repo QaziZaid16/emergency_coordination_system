@@ -113,9 +113,11 @@ If no API host is supplied, portal login shows that it is not configured. The ap
 
 - **Dashboard** shows total, active, unassigned, assigned, in-progress, and resolved reports; responder availability; and resource allocation from the backend.
 - **Incidents** supports search by reference, type, description, location, priority, status, or responder, plus All, Active, Unassigned, and Resolved filters. Cards show priority rationale, severity, urgency, report time, reported location, and coordinates/accuracy when available.
+- Open an incident to review its original details, any validated decision-support summary, and possible duplicate candidates. Duplicate matches are suggestions only; reports are not auto-merged or discarded. AI/rules analysis never replaces the stored deterministic priority or an admin's dispatch decision.
 - Select **Assign** or **Reassign**, review eligible available responders, and select one. Distance appears only when the user's and responder's GPS readings are no older than 15 minutes and each has recorded accuracy of 100 m or better. Otherwise distance is shown as unavailable; the admin still chooses the responder.
 - An optional available resource can be allocated with an assignment. The backend checks current availability and serializes assignment/resource changes in a database transaction. Database constraints reject conflicting active assignments.
 - **Responders** can be created, have capabilities edited, and be marked available/unavailable. **Users** can be deactivated/reactivated; deactivation revokes their active sessions. **Resources** can be added, edited, enabled, or disabled. **Audit** shows administrative and operational changes.
+- **Copilot** answers read-only questions using fixed database queries: unassigned reports, incident references/counts, responder availability, resources, and descriptive historical metrics. It cannot write records or execute arbitrary SQL. Descriptive analytics cover at most 90 days and report missing averages as unavailable; they do not forecast future demand.
 - Resolve and cancel actions require confirmation. Both close the record and release the current responder/resource. This is an internal platform update; no external agency is notified.
 
 ## Use the User Portal
@@ -128,6 +130,8 @@ If no API host is supplied, portal login shows that it is not configured. The ap
 6. **My requests** refreshes every 12 seconds and displays assignment and response status changes for only the signed-in user's reports. Tap a report to see its status history.
 
 GPS readings older than 15 minutes are rejected by the service. If submission fails, the app displays a connection error and does not show a success message. Location data is sensitive: production use requires a reviewed legal basis, retention limit, access policy, protected TLS deployment, and incident response plan.
+
+Incident submission persists first and runs the separate analysis task afterward. With default `AI_PROVIDER=none`, the backend performs a rules-based source-text scan; it does not call a model. To enable a compatible language model, configure `AI_PROVIDER=openai_compatible`, `AI_BASE_URL`, `AI_MODEL`, and a server-side `AI_API_KEY` in the backend environment. Do not put provider keys in Flutter or commit `.env`. By default the provider receives only the report text, selected category, severity, and urgency; location text is excluded unless `AI_SHARE_INCIDENT_LOCATION=true`, and GPS coordinates are not sent. External model use may cost money and disclose report text to the chosen provider. Configure it only after cost, retention, and privacy review. Model output is schema-validated and source-checked; failures fall back to the rules baseline. The label and audit trail identify the selected provider/model. AI has no dispatch authority.
 
 ## Use the Responder Portal
 

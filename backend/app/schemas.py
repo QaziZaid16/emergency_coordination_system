@@ -4,7 +4,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 Role = Literal["admin", "user", "responder"]
-EmergencyType = Literal["Ambulance / Medical Emergency", "Fire and Rescue", "Police / Security", "Other Emergency"]
+EmergencyType = Literal[
+    "Ambulance / Medical Emergency",
+    "Fire and Rescue",
+    "Police / Security",
+    "Other Emergency",
+]
 
 
 class UserCreate(BaseModel):
@@ -66,15 +71,24 @@ class IncidentCreate(BaseModel):
     def validate_location(self):
         if (self.latitude is None) != (self.longitude is None):
             raise ValueError("latitude and longitude must be provided together")
-        if self.location_source == "gps" and (self.latitude is None or self.location_at is None):
-            raise ValueError("GPS location requires coordinates and a capture timestamp")
+        if self.location_source == "gps" and (
+            self.latitude is None or self.location_at is None
+        ):
+            raise ValueError(
+                "GPS location requires coordinates and a capture timestamp"
+            )
         if self.location_source == "gps":
             captured = self.location_at
             if captured is not None and captured.tzinfo is None:
                 captured = captured.replace(tzinfo=timezone.utc)
             now = datetime.now(timezone.utc)
-            if captured is not None and (now - captured > timedelta(minutes=15) or captured > now + timedelta(minutes=1)):
-                raise ValueError("GPS location must be captured within the last 15 minutes")
+            if captured is not None and (
+                now - captured > timedelta(minutes=15)
+                or captured > now + timedelta(minutes=1)
+            ):
+                raise ValueError(
+                    "GPS location must be captured within the last 15 minutes"
+                )
         return self
 
 
@@ -106,3 +120,7 @@ class ResponderLocation(BaseModel):
     longitude: float = Field(ge=-180, le=180)
     accuracy_m: float = Field(ge=0, le=100000)
     captured_at: datetime
+
+
+class CopilotQuestion(BaseModel):
+    question: str = Field(min_length=2, max_length=240)
