@@ -1545,6 +1545,11 @@ class _AdminDashboard extends StatelessWidget {
       ))
         _IncidentCard(
           item: Map<String, dynamic>.from(raw as Map),
+          compactLocation: true,
+          onTap: () => _showAdminIncidentDetails(
+            context,
+            Map<String, dynamic>.from(raw),
+          ),
           action: FilledButton.tonal(
             onPressed: () => onIncident(Map<String, dynamic>.from(raw)),
             child: const Text('Review responders'),
@@ -1618,7 +1623,7 @@ class _AdminIncidentsState extends State<_AdminIncidents> {
         onChanged: (_) => setState(() {}),
         decoration: InputDecoration(
           prefixIcon: const Icon(Icons.search),
-          hintText: 'Search reference, description, location, or responder',
+          hintText: 'Search reports',
           suffixIcon: search.text.isEmpty
               ? null
               : IconButton(
@@ -1651,7 +1656,7 @@ class _AdminIncidentsState extends State<_AdminIncidents> {
         children: [
           Expanded(
             child: Text(
-              '${visibleIncidents.length} reports',
+              '${visibleIncidents.length} ${visibleIncidents.length == 1 ? 'report' : 'reports'}',
               style: Theme.of(context).textTheme.titleLarge,
             ),
           ),
@@ -1665,35 +1670,70 @@ class _AdminIncidentsState extends State<_AdminIncidents> {
         Builder(
           builder: (context) {
             final status = item['status'];
+            final terminal = ['Resolved', 'Cancelled'].contains(status);
+            final canAssign = status == 'Unassigned';
+            final canReassign = [
+              'Assigned',
+              'Accepted',
+              'En Route',
+              'On Scene',
+            ].contains(status);
             return _IncidentCard(
               item: item,
+              compactLocation: true,
+              onTap: () => _showAdminIncidentDetails(context, item),
               action: Wrap(
                 spacing: 8,
+                runSpacing: 4,
                 children: [
-                  if (status == 'Unassigned')
-                    FilledButton.tonal(
+                  if (canAssign)
+                    FilledButton.icon(
                       onPressed: () => widget.onAssign(item),
-                      child: const Text('Assign'),
+                      icon: const Icon(Icons.person_add_alt_1),
+                      label: const Text('Assign responder'),
                     ),
-                  if ([
-                    'Assigned',
-                    'Accepted',
-                    'En Route',
-                    'On Scene',
-                  ].contains(status))
-                    OutlinedButton(
+                  if (canReassign)
+                    OutlinedButton.icon(
                       onPressed: () => widget.onReassign(item),
-                      child: const Text('Reassign'),
+                      icon: const Icon(Icons.swap_horiz),
+                      label: const Text('Change responder'),
                     ),
-                  if (!['Resolved', 'Cancelled'].contains(status))
-                    TextButton(
-                      onPressed: () => widget.onResolve(item),
-                      child: const Text('Resolve'),
-                    ),
-                  if (!['Resolved', 'Cancelled'].contains(status))
-                    TextButton(
-                      onPressed: () => widget.onCancel(item),
-                      child: const Text('Cancel'),
+                  if (!terminal)
+                    PopupMenuButton<String>(
+                      tooltip: 'More report actions',
+                      onSelected: (value) {
+                        if (value == 'resolve') widget.onResolve(item);
+                        if (value == 'cancel') widget.onCancel(item);
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(
+                          value: 'resolve',
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.check_circle_outline),
+                            title: Text('Mark resolved'),
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'cancel',
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.cancel_outlined),
+                            title: Text('Cancel report'),
+                          ),
+                        ),
+                      ],
+                      child: const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('More'),
+                            SizedBox(width: 4),
+                            Icon(Icons.expand_more),
+                          ],
+                        ),
+                      ),
                     ),
                 ],
               ),
@@ -2200,10 +2240,16 @@ class _ResponderPortalState extends State<ResponderPortal> {
 }
 
 class _IncidentCard extends StatelessWidget {
-  const _IncidentCard({required this.item, this.action, this.onTap});
+  const _IncidentCard({
+    required this.item,
+    this.action,
+    this.onTap,
+    this.compactLocation = false,
+  });
   final Map<String, dynamic> item;
   final Widget? action;
   final VoidCallback? onTap;
+  final bool compactLocation;
   @override
   Widget build(BuildContext context) => Card(
     child: InkWell(
@@ -2233,28 +2279,56 @@ class _IncidentCard extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
-            Text(
-              '${item['severity']}/5 severity · ${item['urgency']}/5 urgency · ${_formatTimestamp(item['created_at'])}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            if (item['priority_reason'] != null)
-              Text(
-                item['priority_reason'].toString(),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
             const SizedBox(height: 5),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                _InfoTag(
+                  icon: Icons.warning_amber_rounded,
+                  label: 'Severity ${item['severity']}/5',
+                ),
+                _InfoTag(
+                  icon: Icons.bolt_outlined,
+                  label: 'Urgency ${item['urgency']}/5',
+                ),
+                _InfoTag(
+                  icon: Icons.access_time,
+                  label: _formatTimestamp(item['created_at']),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
             Text(
-              item['description'].toString(),
-              maxLines: 3,
+              item['description']?.toString().trim().isNotEmpty == true
+                  ? item['description'].toString()
+                  : 'No description provided',
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 5),
-            Text(item['location_label'].toString()),
-            if (item['latitude'] != null && item['longitude'] != null)
-              Text(
-                'GPS ${item['latitude']}, ${item['longitude']} · ±${(item['accuracy_m'] as num?)?.round() ?? 'unknown'} m',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+            const SizedBox(height: 6),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.location_on_outlined, size: 18),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    compactLocation
+                        ? _incidentListLocation(item['location_label'])
+                        : item['location_label']
+                                  ?.toString()
+                                  .trim()
+                                  .isNotEmpty ==
+                              true
+                        ? item['location_label'].toString()
+                        : 'Location not provided',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
             if (item['responder_name'] != null)
               Text('Responder: ${item['responder_name']}'),
             if (action != null)
@@ -2268,8 +2342,141 @@ class _IncidentCard extends StatelessWidget {
 
 String _formatTimestamp(Object? value) {
   final parsed = DateTime.tryParse(value?.toString() ?? '');
-  return parsed == null ? 'time unavailable' : parsed.toLocal().toString();
+  if (parsed == null) return 'Time unavailable';
+  final local = parsed.toLocal();
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return '${local.day} ${months[local.month - 1]} $hour:$minute';
 }
+
+String _incidentListLocation(Object? value) {
+  final label = value?.toString().trim() ?? '';
+  if (label.isEmpty) return 'Location not provided';
+  // Device GPS labels often embed coordinates; keep those for the details view.
+  if (label.toLowerCase().contains('gps') ||
+      RegExp(r'-?\d{1,3}\.\d{4,}').hasMatch(label)) {
+    return 'GPS location shared · tap for coordinates';
+  }
+  return label;
+}
+
+class _InfoTag extends StatelessWidget {
+  const _InfoTag({required this.icon, required this.label});
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(
+        icon,
+        size: 15,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+      const SizedBox(width: 4),
+      Text(label, style: Theme.of(context).textTheme.bodySmall),
+    ],
+  );
+}
+
+Future<void> _showAdminIncidentDetails(
+  BuildContext context,
+  Map<String, dynamic> item,
+) => showModalBottomSheet<void>(
+  context: context,
+  isScrollControlled: true,
+  showDragHandle: true,
+  builder: (context) => SafeArea(
+    child: SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        4,
+        20,
+        20 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            item['emergency_type']?.toString() ?? 'Incident details',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 8,
+            children: [
+              Text(item['reference']?.toString() ?? 'No reference'),
+              _StatusChip(item['status']?.toString() ?? 'Unknown'),
+            ],
+          ),
+          const Divider(height: 24),
+          _detailLine(context, 'Priority', item['priority']?.toString()),
+          _detailLine(context, 'Severity', '${item['severity'] ?? '—'} / 5'),
+          _detailLine(context, 'Urgency', '${item['urgency'] ?? '—'} / 5'),
+          _detailLine(
+            context,
+            'Reported',
+            _formatTimestamp(item['created_at']),
+          ),
+          _detailLine(context, 'Description', item['description']?.toString()),
+          _detailLine(
+            context,
+            'Location',
+            _incidentListLocation(item['location_label'])
+                .replaceFirst(' · tap for coordinates', ''),
+          ),
+          _detailLine(context, 'Responder', item['responder_name']?.toString()),
+          if (item['priority_reason'] != null)
+            _detailLine(
+              context,
+              'Priority explanation',
+              item['priority_reason'].toString(),
+            ),
+          if (item['latitude'] != null && item['longitude'] != null)
+            _detailLine(
+              context,
+              'GPS coordinates',
+              '${item['latitude']}, ${item['longitude']} (±${(item['accuracy_m'] as num?)?.round() ?? 'unknown'} m)',
+            ),
+        ],
+      ),
+    ),
+  ),
+);
+
+Widget _detailLine(BuildContext context, String label, String? value) =>
+    Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(value?.trim().isNotEmpty == true ? value! : 'Not provided'),
+        ],
+      ),
+    );
 
 class _StatusChip extends StatelessWidget {
   const _StatusChip(this.value);

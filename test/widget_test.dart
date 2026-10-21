@@ -54,6 +54,95 @@ void main() {
     expect(find.textContaining('API_BASE_URL'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'admin incident cards show readable summaries and full details on demand',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final incident = {
+        'id': 'incident-1',
+        'reference': 'ECS-B61659',
+        'emergency_type': 'Ambulance / Medical Emergency',
+        'status': 'Unassigned',
+        'priority': 'High',
+        'severity': 3,
+        'urgency': 3,
+        'created_at': '2026-10-21T18:12:44.153400Z',
+        'priority_reason':
+            'Severity 3/5 + urgency 3/5 + response factor = 14/22',
+        'description': 'Bridge collapse',
+        'location_label': 'Device GPS (30.72691, 76.65173)',
+        'latitude': 30.7269108,
+        'longitude': 76.6517281,
+        'accuracy_m': 13,
+      };
+      final api = ApiClient(
+        baseUrl: 'https://api.example.test',
+        client: MockClient((request) async {
+          if (request.url.path.endsWith('/incidents')) {
+            return http.Response(jsonEncode([incident]), 200);
+          }
+          if (request.url.path.endsWith('/dashboard')) {
+            return http.Response('{}', 200);
+          }
+          return http.Response('[]', 200);
+        }),
+      );
+      final session = ApiSession(
+        token: 'admin-token',
+        expiresAt: DateTime.now().add(const Duration(hours: 1)),
+        sessionExpiresAt: DateTime.now().add(const Duration(days: 1)),
+        user: {'id': 'admin-1', 'email': 'admin@example.test', 'role': 'admin'},
+        rememberMe: false,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: OpsTheme.dark,
+          home: AdminPortal(api: api, session: session, onLogout: () {}),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Incidents'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Assign responder'), findsOneWidget);
+      expect(find.text('Severity 3/5'), findsOneWidget);
+      expect(find.text('Urgency 3/5'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Text &&
+              RegExp(r'21 Oct \d{2}:\d{2}').hasMatch(widget.data ?? ''),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text('GPS location shared · tap for coordinates'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('30.7269108'), findsNothing);
+      expect(find.textContaining('response factor'), findsNothing);
+      expect(find.text('More'), findsOneWidget);
+      await tester.tap(find.text('More'));
+      await tester.pumpAndSettle();
+      expect(find.text('Mark resolved'), findsOneWidget);
+      expect(find.text('Cancel report'), findsOneWidget);
+      await tester.tapAt(const Offset(10, 100));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Ambulance / Medical Emergency'));
+      await tester.pumpAndSettle();
+      expect(find.text('Priority explanation'), findsOneWidget);
+      expect(find.text('GPS coordinates'), findsOneWidget);
+      expect(find.textContaining('30.7269108'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets(
     'remembered user restores only to the user portal and logout returns to chooser',
     (tester) async {
