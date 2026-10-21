@@ -50,7 +50,7 @@ The repository includes a ready-to-install APK at [`release/emergency-coordinati
 The APK was installed and launched on a physical Android CPH2691 during verification. It is a demonstration release signed with the generated debug key, not a Play Store or production-signed build. SHA-256:
 
 ```text
-c8baf5ec96b646476b3387dd08cd264d6ce2db7af2b9a9e76b63b3e969b857f6
+24ff2c9842fef6cef592c5c445a07d08467838fb0d5f77d91fb4d8dce7a08960
 ```
 
 To verify the downloaded APK, run `shasum -a 256 release/emergency-coordination-system-demo.apk` on macOS or `sha256sum release/emergency-coordination-system-demo.apk` on Linux.
@@ -58,6 +58,8 @@ To verify the downloaded APK, run `shasum -a 256 release/emergency-coordination-
 ## First launch
 
 The app opens to **Operations overview**. On the first launch it creates a simulated training workspace containing one sample medical incident, four responder profiles, and four resource records. All seeded sample content is for demonstration; it is not a real emergency report or live resource inventory.
+
+The custom launcher mark is a response hub: a shield with a pulse line connected to four team nodes. Android uses adaptive icons on supported launchers, legacy density icons on older launchers, and a monochrome layer for themed icons on newer Android versions. The editable vector source is [`assets/brand/emergency-coordination-icon.svg`](assets/brand/emergency-coordination-icon.svg); matching PNG icons are used for the Flutter web/PWA assets.
 
 The app has five tabs in the bottom navigation:
 

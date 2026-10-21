@@ -28,7 +28,7 @@ adb install -r release/emergency-coordination-system-demo.apk
 adb shell am start -n edu.cgc.university.emergency_coordination_system/.MainActivity
 ```
 
-The included APK was installed and launched on a physical Android CPH2691. SHA-256: `c8baf5ec96b646476b3387dd08cd264d6ce2db7af2b9a9e76b63b3e969b857f6`.
+The included APK was installed and launched on a physical Android CPH2691. SHA-256: `24ff2c9842fef6cef592c5c445a07d08467838fb0d5f77d91fb4d8dce7a08960`.
 
 ## Build a new release APK for classroom demonstration
 

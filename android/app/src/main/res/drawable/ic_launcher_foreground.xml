@@ -1,0 +1,31 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M54,54 L54,27 M54,54 L81,54 M54,54 L54,81 M54,54 L27,54"
+        android:strokeColor="#96CCC4"
+        android:strokeWidth="2.6"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#F4F1E6"
+        android:strokeColor="#182E37"
+        android:strokeWidth="1.4"
+        android:pathData="M54,35 C64.5,35 73,43.5 73,54 C73,64.5 64.5,73 54,73 C43.5,73 35,64.5 35,54 C35,43.5 43.5,35 54,35 Z" />
+    <path
+        android:fillColor="#DE5E4F"
+        android:pathData="M54,37 C50,40 47,41 43,41 L42,42 L42,51 C42,60 47,66 54,69 C61,66 66,60 66,51 L66,42 L65,41 C61,41 58,40 54,37 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M44,53 L49,53 L52,48 L55,59 L59,51 L62,53 L64,53"
+        android:strokeColor="#FFF9EF"
+        android:strokeWidth="1.65"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path android:fillColor="#5BCCBE" android:strokeColor="#F7F2E6" android:strokeWidth="1.1" android:pathData="M54,18.6 C57.54,18.6 60.4,21.46 60.4,25 C60.4,28.54 57.54,31.4 54,31.4 C50.46,31.4 47.6,28.54 47.6,25 C47.6,21.46 50.46,18.6 54,18.6 Z" />
+    <path android:fillColor="#F6BE63" android:strokeColor="#F7F2E6" android:strokeWidth="1.1" android:pathData="M83,47.6 C86.54,47.6 89.4,50.46 89.4,54 C89.4,57.54 86.54,60.4 83,60.4 C79.46,60.4 76.6,57.54 76.6,54 C76.6,50.46 79.46,47.6 83,47.6 Z" />
+    <path android:fillColor="#71A8DA" android:strokeColor="#F7F2E6" android:strokeWidth="1.1" android:pathData="M54,76.6 C57.54,76.6 60.4,79.46 60.4,83 C60.4,86.54 57.54,89.4 54,89.4 C50.46,89.4 47.6,86.54 47.6,83 C47.6,79.46 50.46,76.6 54,76.6 Z" />
+    <path android:fillColor="#E87B6B" android:strokeColor="#F7F2E6" android:strokeWidth="1.1" android:pathData="M25,47.6 C28.54,47.6 31.4,50.46 31.4,54 C31.4,57.54 28.54,60.4 25,60.4 C21.46,60.4 18.6,57.54 18.6,54 C18.6,50.46 21.46,47.6 25,47.6 Z" />
+</vector>

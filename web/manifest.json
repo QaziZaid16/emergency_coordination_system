@@ -1,11 +1,11 @@
 {
-    "name": "emergency_coordination_system",
-    "short_name": "emergency_coordination_system",
+    "name": "Emergency Coordination System",
+    "short_name": "Emergency Coordination",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0F1D27",
+    "theme_color": "#0F1D27",
+    "description": "Simulated emergency coordination training prototype.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

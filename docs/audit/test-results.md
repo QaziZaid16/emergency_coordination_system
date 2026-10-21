@@ -6,8 +6,8 @@
 - Text extracted from 18 PPT slides and 16 Synopsis pages; PPT visuals reviewed.
 - Static analysis completed with `No issues found`.
 - Targeted test suite completed: `flutter test test/dispatch_rules_test.dart test/operations_store_test.dart test/widget_test.dart` — 7 tests passed. Default test discovery on the exFAT source volume encounters macOS `._*` AppleDouble files; targeted tests run from the APFS staging copy.
-- Release APK built successfully from `/private/tmp/ecs_android_build` using Flutter 3.47.7 / Dart 3.13.5; handoff copy is `release/emergency-coordination-system-demo.apk` (SHA-256 `c8baf5ec96b646476b3387dd08cd264d6ce2db7af2b9a9e76b63b3e969b857f6`).
-- APK installed and launched on physical Android device `CPH2691` (ADB serial `a102172d`); process confirmed running. This is a local demonstration build signed with the generated debug key.
+- Release APK built successfully from `/private/tmp/ecs_android_build` using Flutter 3.47.7 / Dart 3.13.5; handoff copy is `release/emergency-coordination-system-demo.apk` (SHA-256 `24ff2c9842fef6cef592c5c445a07d08467838fb0d5f77d91fb4d8dce7a08960`).
+- Custom adaptive, legacy, and themed launcher resources compile; rebuilt APK installed and launched on physical Android device `CPH2691` (ADB serial `a102172d`); process confirmed running. This is a local demonstration build signed with the generated debug key.
 
 ## Test cases
 
