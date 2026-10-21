@@ -41,6 +41,34 @@ Map<String, dynamic> authResponse({String role = 'admin'}) => {
 };
 
 void main() {
+  group('server error messages', () {
+    test('explains service failures without implying a bad password', () async {
+      final client = ApiClient(
+        baseUrl: 'https://api.example.test',
+        storage: MemorySessionStorage(),
+        client: MockClient(
+          (_) async => http.Response('{"detail":"Internal Server Error"}', 500),
+        ),
+      );
+
+      await expectLater(
+        client.login(
+          'admin@example.com',
+          'password',
+          'admin',
+          rememberMe: false,
+        ),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.message,
+            'message',
+            contains('coordination service had a problem'),
+          ),
+        ),
+      );
+    });
+  });
+
   group('remembered sessions', () {
     test(
       'Remember Me stores only the server-issued session in secure storage',

@@ -1080,48 +1080,117 @@ class _AdminPortalState extends State<AdminPortal> {
       }
       final selected = await showDialog<Map<String, dynamic>>(
         context: context,
-        builder: (context) => SimpleDialog(
-          title: const Text('Review responder recommendations'),
-          children: [
-            for (var index = 0; index < available.length; index++)
-              Builder(
-                builder: (context) {
-                  final row = available[index];
-                  return SimpleDialogOption(
-                    onPressed: () => Navigator.pop(context, row),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                row['display_name'].toString(),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
+        builder: (dialogContext) => Dialog(
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 24,
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 520,
+              maxHeight: MediaQuery.sizeOf(dialogContext).height * .78,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Review responder recommendations',
+                    style: Theme.of(dialogContext).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Choose an available responder. Scores support review; dispatch remains your decision.',
+                    style: Theme.of(dialogContext).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: available.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final row = available[index];
+                        final isRecommended =
+                            recommendationResult['recommended_responder_id'] ==
+                            row['responder_id'];
+                        final reasons = (row['reasons'] as List? ?? const [])
+                            .map((reason) => reason.toString())
+                            .toList();
+                        return Card(
+                          margin: EdgeInsets.zero,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: () => Navigator.pop(dialogContext, row),
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    row['display_name'].toString(),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.w700),
+                                  ),
+                                  if (isRecommended) ...[
+                                    const SizedBox(height: 6),
+                                    const Chip(
+                                      avatar: Icon(
+                                        Icons.stars_outlined,
+                                        size: 18,
+                                      ),
+                                      label: Text('Top recommendation'),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                  ],
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Match score: ${row['score']}/100',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelLarge,
+                                  ),
+                                  if (reasons.isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    for (final reason in reasons)
+                                      Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 3,
+                                        ),
+                                        child: Text('• $reason'),
+                                      ),
+                                  ],
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Tap to assign',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelMedium
+                                        ?.copyWith(color: OpsColors.primary),
+                                  ),
+                                ],
                               ),
                             ),
-                            if (recommendationResult['recommended_responder_id'] ==
-                                row['responder_id'])
-                              const Chip(
-                                label: Text('Top recommendation'),
-                                visualDensity: VisualDensity.compact,
-                              ),
-                          ],
-                        ),
-                        Text('Recommendation score: ${row['score']}/100'),
-                        Text((row['reasons'] as List? ?? const []).join(' · ')),
-                      ],
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                ],
               ),
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
             ),
-          ],
+          ),
         ),
       );
       if (selected == null) return;

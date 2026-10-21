@@ -434,18 +434,22 @@ class ApiClient {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return response;
       }
-      var message = 'Service request failed (${response.statusCode}).';
+      var message = response.statusCode >= 500
+          ? 'The coordination service had a problem. Please retry; if it continues, ask the server operator to check the service.'
+          : 'Service request failed (${response.statusCode}).';
       if (response.statusCode == 401 &&
           session != null &&
           path != '/auth/logout' &&
           path != '/auth/me') {
         sessionExpired.value = true;
       }
-      try {
-        final data = jsonDecode(response.body) as Map;
-        final detail = data['detail'];
-        message = detail is String ? detail : message;
-      } catch (_) {}
+      if (response.statusCode < 500) {
+        try {
+          final data = jsonDecode(response.body) as Map;
+          final detail = data['detail'];
+          message = detail is String ? detail : message;
+        } catch (_) {}
+      }
       throw ApiException(message, statusCode: response.statusCode);
     } on ApiException {
       rethrow;
