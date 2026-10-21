@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 
 import 'data/operations_store.dart';
+import 'presentation/design_system.dart';
 import 'presentation/home_page.dart';
 
 Future<void> main() async {
@@ -30,24 +31,7 @@ class EmergencyCoordinationApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
     title: 'Emergency Coordination',
     debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFFB64032),
-        brightness: Brightness.light,
-      ),
-      scaffoldBackgroundColor: const Color(0xFFF6F7F9),
-      cardTheme: const CardThemeData(
-        color: Colors.white,
-        elevation: 0,
-        margin: EdgeInsets.zero,
-      ),
-      inputDecorationTheme: const InputDecorationTheme(
-        border: OutlineInputBorder(),
-        filled: true,
-        fillColor: Colors.white,
-      ),
-    ),
+    theme: OpsTheme.light,
     home: HomePage(store: store),
   );
 }

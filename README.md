@@ -50,7 +50,7 @@ The repository includes a ready-to-install APK at [`release/emergency-coordinati
 The APK was installed and launched on a physical Android CPH2691 during verification. It is a demonstration release signed with the generated debug key, not a Play Store or production-signed build. SHA-256:
 
 ```text
-24ff2c9842fef6cef592c5c445a07d08467838fb0d5f77d91fb4d8dce7a08960
+235657e11b6e84ed4b377ac803fda0097cca2552c7be074bf13632275744040e
 ```
 
 To verify the downloaded APK, run `shasum -a 256 release/emergency-coordination-system-demo.apk` on macOS or `sha256sum release/emergency-coordination-system-demo.apk` on Linux.
@@ -70,6 +70,15 @@ The app has five tabs in the bottom navigation:
 | **Responders** | Simulated responder teams, skills, assigned case, availability, and off-duty/available controls. |
 | **Resources** | Sample vehicles/resources, their type, and whether they are available or allocated. |
 | **Reports** | Local case totals, resolution summary, resolved incident history, and recent activity records. |
+
+### Interface and interaction notes
+
+- The overview puts the active workload first, then shows critical cases, assigned cases, and ready responders as separate scan-friendly counts. Select an incident card to go straight to its details.
+- The incident queue combines a text search for type, location, or description with status filters. Use the clear button to reset the search. Select a case to review its priority explanation, assignment, communication, and lifecycle actions.
+- Incident details show the response lifecycle as a progress track from **New** through **Resolved**, so the current stage and next action are easier to understand.
+- The shared interface uses deep teal for primary actions, warm coral for urgency emphasis, high contrast status labels, and consistent card and form styles. The training label remains visible in the top bar.
+- Content pages scroll vertically on smaller screens. Use the five-item bottom bar to move between Overview, Incidents, Responders, Resources, and Reports; use the top-right workspace menu to enter the separate responder demo view.
+- Empty queues and reports explain that there is no matching content yet. Search and list filters can be cleared or changed without modifying saved records.
 
 Tap the profile icon in the upper-right corner to choose **Coordinator console** (returns to Overview) or open **Responder workspace**. The profile menu is a demonstration shortcut, not a sign-in or a security boundary.
 

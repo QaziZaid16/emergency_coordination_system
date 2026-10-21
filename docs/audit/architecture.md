@@ -35,7 +35,7 @@ Presentation handles navigation/forms/status feedback. Domain services own valid
 
 ## UI structure
 
-Overview; incident intake/list/detail; responders; resources; incident communication; reports/history; responder workspace. Use high contrast priority/state labels, touch-sized actions, explicit simulated-data marker, responsive narrow layouts, validation and useful empty/error feedback. Android is target; web platform scaffolding is for development only.
+Overview; incident intake/list/detail; responders; resources; incident communication; reports/history; responder workspace. A shared Material 3 theme in `lib/presentation/design_system.dart` sets the operational teal palette, warm urgency accent, typography, touch-sized controls, cards, fields and navigation. The overview groups operational counts into compact metric cards and makes the training-only state visible in the app bar. Incident search, concise section headers, clear empty states and a lifecycle progress indicator help people scan cases and understand their current step. Android is target; web platform scaffolding is for development only.
 
 ## Limits and costs
 

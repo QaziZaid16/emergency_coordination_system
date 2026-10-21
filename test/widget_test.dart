@@ -14,4 +14,5 @@ void main() {
     );
     expect(find.text('CRITICAL'), findsOneWidget);
   });
+
 }

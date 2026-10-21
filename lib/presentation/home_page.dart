@@ -3,23 +3,24 @@ import 'package:flutter/material.dart';
 import '../data/operations_store.dart';
 import '../domain/dispatch_rules.dart';
 import '../domain/models.dart';
+import 'design_system.dart';
 
-const _ink = Color(0xFF18212F);
-const _muted = Color(0xFF6D7785);
-const _line = Color(0xFFE5E8ED);
+const _ink = OpsColors.ink;
+const _muted = OpsColors.muted;
+const _line = OpsColors.line;
 
 Color priorityColor(Priority p) => switch (p) {
-  Priority.critical => const Color(0xFFB42318),
-  Priority.high => const Color(0xFFD65A31),
-  Priority.medium => const Color(0xFFAD7411),
-  Priority.low => const Color(0xFF327A5B),
+  Priority.critical => OpsColors.critical,
+  Priority.high => OpsColors.accent,
+  Priority.medium => OpsColors.warning,
+  Priority.low => OpsColors.success,
 };
 Color statusColor(String s) =>
     s.toLowerCase().contains('available') || s == 'Resolved'
-    ? const Color(0xFF327A5B)
+    ? OpsColors.success
     : s.toLowerCase().contains('off')
     ? const Color(0xFF6D7785)
-    : const Color(0xFF3569A8);
+    : OpsColors.blue;
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.store});
@@ -42,33 +43,49 @@ class _HomePageState extends State<HomePage> {
     animation: widget.store,
     builder: (context, _) => Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFFF6F7F9),
         title: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              titles[index],
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 19,
-                color: _ink,
-              ),
-            ),
-            const Text(
-              'SIMULATED OPERATIONS • TRAINING PROTOTYPE',
-              style: TextStyle(
-                fontSize: 9,
-                letterSpacing: 1.05,
-                color: _muted,
-                fontWeight: FontWeight.w700,
-              ),
+            Text(titles[index]),
+            const SizedBox(height: 2),
+            Row(
+              children: [
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: const BoxDecoration(
+                    color: OpsColors.accent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Text(
+                  'TRAINING WORKSPACE',
+                  style: TextStyle(
+                    fontSize: 9,
+                    letterSpacing: 1.1,
+                    color: _muted,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
         actions: [
           PopupMenuButton<String>(
-            tooltip: 'Open workspace',
-            icon: const Icon(Icons.account_circle_outlined),
+            tooltip: 'Switch workspace',
+            icon: const CircleAvatar(
+              radius: 17,
+              backgroundColor: OpsColors.primaryWash,
+              child: Icon(
+                Icons.swap_horiz_rounded,
+                color: OpsColors.primaryDark,
+                size: 20,
+              ),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
             onSelected: (v) {
               if (v == 'responder') {
                 Navigator.push(
@@ -88,7 +105,7 @@ class _HomePageState extends State<HomePage> {
               ),
               PopupMenuItem(
                 value: 'responder',
-                child: Text('Responder workspace'),
+                child: Text('Responder workspace · demo'),
               ),
             ],
           ),
@@ -155,7 +172,7 @@ class PagePad extends StatelessWidget {
   final Widget child;
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
-    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+    padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
     child: ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 820),
       child: child,
@@ -169,7 +186,7 @@ class SectionTitle extends StatelessWidget {
   final Widget? trailing;
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 18, bottom: 10),
+    padding: const EdgeInsets.only(top: 23, bottom: 11),
     child: Row(
       children: [
         Expanded(
@@ -195,10 +212,6 @@ class Panel extends StatelessWidget {
   final EdgeInsets padding;
   @override
   Widget build(BuildContext context) => Card(
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(16),
-      side: const BorderSide(color: _line),
-    ),
     child: Padding(padding: padding, child: child),
   );
 }
@@ -227,79 +240,63 @@ class OverviewPage extends StatelessWidget {
         children: [
           if (store.storageError != null)
             StorageWarning(text: store.storageError!),
-          const Panel(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.info_outline, color: Color(0xFF3569A8)),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Training workspace. Sample records are simulated; this app does not contact emergency services or share live location.',
-                    style: TextStyle(
-                      color: _ink,
-                      height: 1.4,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
+          const _TrainingBanner(),
+          const SizedBox(height: 15),
           LayoutBuilder(
-            builder: (context, c) => Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                MetricCard(
-                  label: 'Active incidents',
-                  value: '${active.length}',
-                  icon: Icons.warning_amber_rounded,
-                  accent: const Color(0xFFB64032),
-                  width: (c.maxWidth - 20) / 3,
-                ),
-                MetricCard(
-                  label: 'Critical',
-                  value: '$critical',
-                  icon: Icons.priority_high,
-                  accent: priorityColor(Priority.critical),
-                  width: (c.maxWidth - 20) / 3,
-                ),
-                MetricCard(
-                  label: 'Teams ready',
-                  value: '$available',
-                  icon: Icons.groups_outlined,
-                  accent: const Color(0xFF327A5B),
-                  width: (c.maxWidth - 20) / 3,
-                ),
-              ],
-            ),
+            builder: (context, c) {
+              final width = (c.maxWidth - 12) / 2;
+              return Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  MetricCard(
+                    label: 'Active incidents',
+                    value: '${active.length}',
+                    icon: Icons.warning_amber_rounded,
+                    accent: OpsColors.accent,
+                    width: width,
+                  ),
+                  MetricCard(
+                    label: 'Critical priority',
+                    value: '$critical',
+                    icon: Icons.priority_high_rounded,
+                    accent: priorityColor(Priority.critical),
+                    width: width,
+                  ),
+                  MetricCard(
+                    label: 'Teams assigned',
+                    value: '$assigned',
+                    icon: Icons.route_outlined,
+                    accent: OpsColors.blue,
+                    width: width,
+                  ),
+                  MetricCard(
+                    label: 'Teams available',
+                    value: '$available',
+                    icon: Icons.groups_2_outlined,
+                    accent: OpsColors.success,
+                    width: width,
+                  ),
+                ],
+              );
+            },
           ),
           SectionTitle(
             'Priority queue',
-            trailing: Text(
-              '${active.length} OPEN',
-              style: const TextStyle(
-                fontSize: 10,
-                letterSpacing: .8,
-                color: _muted,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            trailing: _CountTag(text: '${active.length} OPEN'),
           ),
           if (active.isEmpty)
             const EmptyPanel(
-              icon: Icons.check_circle_outline,
-              title: 'No active incidents',
-              detail: 'New requests will appear here for review.',
+              icon: Icons.check_circle_outline_rounded,
+              title: 'All clear in the training queue',
+              detail: 'New simulated requests will appear here for review.',
             )
           else
             ...active
                 .take(4)
                 .map(
                   (i) => Padding(
-                    padding: const EdgeInsets.only(bottom: 9),
+                    padding: const EdgeInsets.only(bottom: 10),
                     child: IncidentTile(
                       incident: i,
                       store: store,
@@ -309,17 +306,10 @@ class OverviewPage extends StatelessWidget {
                 ),
           SectionTitle(
             'Team readiness',
-            trailing: Text(
-              '$assigned DEPLOYED',
-              style: const TextStyle(
-                fontSize: 10,
-                letterSpacing: .8,
-                color: _muted,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            trailing: _CountTag(text: '$assigned DEPLOYED'),
           ),
           Panel(
+            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 7),
             child: Column(
               children: store.responders
                   .take(4)
@@ -347,6 +337,80 @@ class OverviewPage extends StatelessWidget {
   }
 }
 
+class _TrainingBanner extends StatelessWidget {
+  const _TrainingBanner();
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: OpsColors.primaryDark,
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: .12),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: const Icon(Icons.hub_rounded, color: Colors.white),
+        ),
+        const SizedBox(width: 13),
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Local operations desk',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              SizedBox(height: 3),
+              Text(
+                'Simulated records · no live dispatch',
+                style: TextStyle(
+                  color: Color(0xFFD0E4E1),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Icon(Icons.shield_outlined, color: Color(0xFF9AD5CC), size: 23),
+      ],
+    ),
+  );
+}
+
+class _CountTag extends StatelessWidget {
+  const _CountTag({required this.text});
+  final String text;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+    decoration: BoxDecoration(
+      color: OpsColors.primaryWash,
+      borderRadius: BorderRadius.circular(99),
+    ),
+    child: Text(
+      text,
+      style: const TextStyle(
+        color: OpsColors.primaryDark,
+        fontWeight: FontWeight.w800,
+        fontSize: 9,
+        letterSpacing: .5,
+      ),
+    ),
+  );
+}
+
 class MetricCard extends StatelessWidget {
   const MetricCard({
     super.key,
@@ -364,25 +428,45 @@ class MetricCard extends StatelessWidget {
   Widget build(BuildContext context) => SizedBox(
     width: width,
     child: Panel(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+      child: Row(
         children: [
-          Icon(icon, color: accent, size: 20),
-          const SizedBox(height: 12),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 25,
-              fontWeight: FontWeight.w800,
-              color: _ink,
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: .1),
+              borderRadius: BorderRadius.circular(12),
             ),
+            child: Icon(icon, color: accent, size: 19),
           ),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11, color: _muted),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    height: 1.05,
+                    fontWeight: FontWeight.w800,
+                    color: _ink,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: _muted,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -401,6 +485,14 @@ class IncidentsPage extends StatefulWidget {
 class _IncidentsPageState extends State<IncidentsPage> {
   String filter = 'All';
   String query = '';
+  final searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final all = [...widget.store.activeIncidents, ...widget.store.history];
@@ -422,10 +514,20 @@ class _IncidentsPageState extends State<IncidentsPage> {
           if (widget.store.storageError != null)
             StorageWarning(text: widget.store.storageError!),
           TextField(
-            decoration: const InputDecoration(
+            controller: searchController,
+            decoration: InputDecoration(
               prefixIcon: Icon(Icons.search),
-              hintText: 'Search incidents by type or location',
-              isDense: true,
+              hintText: 'Search type, location, or details',
+              suffixIcon: query.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Clear search',
+                      onPressed: () {
+                        searchController.clear();
+                        setState(() => query = '');
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
             ),
             onChanged: (v) => setState(() => query = v),
           ),
@@ -443,6 +545,10 @@ class _IncidentsPageState extends State<IncidentsPage> {
                 .toList(),
           ),
           const SizedBox(height: 12),
+          SectionTitle(
+            filter == 'Resolved' ? 'Completed cases' : 'Cases',
+            trailing: _CountTag(text: '${filtered.length} FOUND'),
+          ),
           if (filtered.isEmpty)
             const EmptyPanel(
               icon: Icons.inbox_outlined,
@@ -588,8 +694,8 @@ class RespondersPage extends StatelessWidget {
       children: [
         const Panel(
           child: Text(
-            'Availability and suitability are refreshed from this device’s simulated workspace. Responders assigned to an active case are excluded from new recommendations.',
-            style: TextStyle(color: _muted, height: 1.45),
+            'Training roster · Assigned teams are excluded from new recommendations.',
+            style: TextStyle(color: OpsColors.inkSoft, height: 1.35),
           ),
         ),
         const SectionTitle('Field teams'),
@@ -655,7 +761,7 @@ class ResponderRow extends StatelessWidget {
             child: Text(
               responder.name.split(' ').map((x) => x[0]).take(2).join(),
               style: TextStyle(
-                color: const Color(0xFF9B443A),
+                color: OpsColors.primaryDark,
                 fontWeight: FontWeight.bold,
                 fontSize: compact ? 11 : 13,
               ),
@@ -724,8 +830,8 @@ class ResourcesPage extends StatelessWidget {
       children: [
         const Panel(
           child: Text(
-            'Resource assignments are simulated and exclusive per active incident. Allocation is made with responder assignment and released when a case is resolved.',
-            style: TextStyle(color: _muted, height: 1.45),
+            'Sample inventory · Units reserve with assignment and release at resolution.',
+            style: TextStyle(color: OpsColors.inkSoft, height: 1.35),
           ),
         ),
         const SectionTitle('Equipment & vehicles'),
@@ -739,11 +845,11 @@ class ResourcesPage extends StatelessWidget {
               child: Row(
                 children: [
                   Container(
-                    width: 42,
-                    height: 42,
+                    width: 46,
+                    height: 46,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF1F3F6),
-                      borderRadius: BorderRadius.circular(12),
+                      color: OpsColors.primaryWash,
+                      borderRadius: BorderRadius.circular(14),
                     ),
                     child: Icon(
                       r.type == 'Medical'
@@ -751,7 +857,7 @@ class ResourcesPage extends StatelessWidget {
                           : r.type == 'Fire'
                           ? Icons.local_fire_department_outlined
                           : Icons.directions_car_outlined,
-                      color: _ink,
+                      color: OpsColors.primaryDark,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -805,8 +911,8 @@ class ReportsPage extends StatelessWidget {
         children: [
           const Panel(
             child: Text(
-              'Local operational summary based on records on this device. Use simulated records for classroom demonstration only.',
-              style: TextStyle(color: _muted, height: 1.4),
+              'Local summary · Based only on this device’s training records.',
+              style: TextStyle(color: OpsColors.inkSoft, height: 1.35),
             ),
           ),
           const SectionTitle('Operation summary'),
@@ -848,11 +954,11 @@ class ReportsPage extends StatelessWidget {
             ),
           ),
           const SectionTitle('Incident history'),
-          if (store.incidents.isEmpty)
+          if (store.history.isEmpty)
             const EmptyPanel(
               icon: Icons.history,
-              title: 'No operation history',
-              detail: 'Completed cases will appear here.',
+              title: 'No completed cases yet',
+              detail: 'Resolved training incidents will appear here.',
             )
           else
             ...store.history.map(
@@ -970,11 +1076,24 @@ class EmptyPanel extends StatelessWidget {
       width: double.infinity,
       child: Column(
         children: [
-          Icon(icon, size: 30, color: _muted),
-          const SizedBox(height: 9),
+          Container(
+            width: 48,
+            height: 48,
+            decoration: const BoxDecoration(
+              color: OpsColors.primaryWash,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 23, color: OpsColors.primaryDark),
+          ),
+          const SizedBox(height: 12),
           Text(
             title,
-            style: const TextStyle(fontWeight: FontWeight.w700, color: _ink),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: _ink,
+              fontSize: 15,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
@@ -997,13 +1116,13 @@ class StorageWarning extends StatelessWidget {
     margin: const EdgeInsets.only(bottom: 12),
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
-      color: const Color(0xFFFFF3F0),
-      border: Border.all(color: const Color(0xFFE5B9AF)),
+      color: OpsColors.accentWash,
+      border: Border.all(color: OpsColors.accent.withValues(alpha: .35)),
       borderRadius: BorderRadius.circular(12),
     ),
     child: Text(
       text,
-      style: const TextStyle(color: Color(0xFF8A271E), fontSize: 12),
+      style: const TextStyle(color: Color(0xFF8A372B), fontSize: 12),
     ),
   );
 }
@@ -1296,6 +1415,8 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
                 i.description,
                 style: const TextStyle(color: _muted, height: 1.45),
               ),
+              const SectionTitle('Response progress'),
+              LifecycleProgress(status: i.status),
               const SectionTitle('Incident information'),
               Panel(
                 child: Column(
@@ -1496,6 +1617,82 @@ class _IncidentDetailPageState extends State<IncidentDetailPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class LifecycleProgress extends StatelessWidget {
+  const LifecycleProgress({super.key, required this.status});
+  final IncidentStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    const labels = ['Queued', 'Assigned', 'En route', 'Responding', 'Resolved'];
+    final current = status.index;
+    return Panel(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'CASE LIFECYCLE',
+                  style: TextStyle(
+                    color: _muted,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: .8,
+                  ),
+                ),
+              ),
+              Text(
+                'STEP ${current + 1} OF ${labels.length}',
+                style: const TextStyle(
+                  color: OpsColors.primaryDark,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: .6,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: LinearProgressIndicator(
+              value: current / (labels.length - 1),
+              minHeight: 6,
+              backgroundColor: OpsColors.primaryWash,
+              color: OpsColors.primary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              for (var index = 0; index < labels.length; index++)
+                Expanded(
+                  child: Text(
+                    labels[index],
+                    textAlign: index == 0
+                        ? TextAlign.left
+                        : index == labels.length - 1
+                        ? TextAlign.right
+                        : TextAlign.center,
+                    style: TextStyle(
+                      color: index == current ? OpsColors.primaryDark : _muted,
+                      fontSize: 9,
+                      fontWeight: index == current
+                          ? FontWeight.w800
+                          : FontWeight.w500,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }
