@@ -9,24 +9,6 @@ import '../data/operations_store.dart';
 import 'design_system.dart';
 import 'home_page.dart';
 
-const _roles = <String, (String, IconData, String)>{
-  'admin': (
-    'Admin Portal',
-    Icons.admin_panel_settings_outlined,
-    'Manage reports, responders, assignments, resources and audit history.',
-  ),
-  'user': (
-    'User Portal',
-    Icons.emergency_outlined,
-    'Request emergency help and follow your own report.',
-  ),
-  'responder': (
-    'Responder Portal',
-    Icons.health_and_safety_outlined,
-    'View assigned tasks and send authorized status updates.',
-  ),
-};
-
 class CoordinationBrandMark extends StatelessWidget {
   const CoordinationBrandMark({super.key, this.size = 48});
   final double size;
@@ -160,10 +142,17 @@ class _PortalEntryPageState extends State<PortalEntryPage> {
     final current = session;
     if (current != null) {
       return switch (current.role) {
-        'admin' => AdminPortal(
-          api: widget.api,
-          session: current,
-          onLogout: _logout,
+        'admin' || 'super_admin' => Scaffold(
+          appBar: AppBar(title: const Text('Administration')),
+          body: Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.desktop_windows_outlined, size: 54),
+            const SizedBox(height: 16),
+            const Text('Administration is available in the web dashboard.', textAlign: TextAlign.center),
+            const SizedBox(height: 8),
+            const SelectableText('Open the administration dashboard in your browser.'),
+            const SizedBox(height: 16),
+            OutlinedButton(onPressed: _logout, child: const Text('Sign out')),
+          ]))),
         ),
         'responder' => ResponderPortal(
           api: widget.api,
@@ -187,12 +176,12 @@ class _PortalEntryPageState extends State<PortalEntryPage> {
           children: [
             const SizedBox(height: 14),
             Text(
-              'Choose your portal',
+              'Sign in',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             const SizedBox(height: 8),
             const Text(
-              'Shared accounts and incident records are verified by the coordination service. Training mode remains separate.',
+              'Use your account email and password. Your verified account role opens the right workspace automatically.',
             ),
             const SizedBox(height: 18),
             if (restoreError != null) ...[
@@ -221,34 +210,14 @@ class _PortalEntryPageState extends State<PortalEntryPage> {
               ),
               const SizedBox(height: 12),
             ],
-            for (final entry in _roles.entries)
-              Card(
-                child: ListTile(
-                  contentPadding: const EdgeInsets.all(16),
-                  leading: CircleAvatar(
-                    backgroundColor: OpsColors.primaryWash,
-                    child: Icon(entry.value.$2, color: OpsColors.primaryDark),
-                  ),
-                  title: Text(
-                    entry.value.$1,
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 7),
-                    child: Text(entry.value.$3),
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => PortalLoginPage(
-                        api: widget.api,
-                        role: entry.key,
-                        onSignedIn: _signedIn,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+            Card(child: ListTile(
+              contentPadding: const EdgeInsets.all(16),
+              leading: const CircleAvatar(backgroundColor: OpsColors.primaryWash, child: Icon(Icons.login, color: OpsColors.primaryDark)),
+              title: const Text('Continue to your account', style: TextStyle(fontWeight: FontWeight.w800)),
+              subtitle: const Padding(padding: EdgeInsets.only(top: 7), child: Text('Users and responders are routed automatically. Admin accounts use the web dashboard.')),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => PortalLoginPage(api: widget.api, onSignedIn: _signedIn))),
+            )),
             const SizedBox(height: 18),
             OutlinedButton.icon(
               onPressed: () => Navigator.of(context).push(
@@ -278,11 +247,9 @@ class PortalLoginPage extends StatefulWidget {
   const PortalLoginPage({
     super.key,
     required this.api,
-    required this.role,
     required this.onSignedIn,
   });
   final ApiClient api;
-  final String role;
   final ValueChanged<ApiSession> onSignedIn;
   @override
   State<PortalLoginPage> createState() => _PortalLoginPageState();
@@ -319,7 +286,7 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
       error = null;
     });
     try {
-      final value = widget.role == 'user' && registering
+      final value = registering
           ? await widget.api.registerUser(
               name.text,
               email.text,
@@ -329,7 +296,7 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
           : await widget.api.login(
               email.text,
               password.text,
-              widget.role,
+              'auto',
               rememberMe: rememberMe,
             );
       if (mounted) {
@@ -345,7 +312,7 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    final role = _roles[widget.role]!;
+    const role = ('Your account', Icons.login, 'Sign in to your account.');
     return Scaffold(
       appBar: AppBar(title: Text(role.$1)),
       body: Center(
@@ -358,7 +325,7 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
               const Center(child: CoordinationBrandMark(size: 72)),
               const SizedBox(height: 14),
               Text(
-                '${registering ? 'Create' : 'Sign in to'} ${role.$1}',
+                registering ? 'Create a user account' : 'Sign in',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleLarge,
               ),
@@ -476,7 +443,6 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
                       )
                     : Text(registering ? 'Create user account' : 'Sign in'),
               ),
-              if (widget.role == 'user')
                 TextButton(
                   onPressed: busy
                       ? null
@@ -1881,6 +1847,7 @@ class _AdminIncidentsState extends State<_AdminIncidents> {
           suffixIcon: search.text.isEmpty
               ? null
               : IconButton(
+                  tooltip: 'Clear search',
                   onPressed: () {
                     search.clear();
                     setState(() {});
@@ -1915,6 +1882,7 @@ class _AdminIncidentsState extends State<_AdminIncidents> {
             ),
           ),
           IconButton(
+            tooltip: 'Refresh incidents',
             onPressed: widget.onRefresh,
             icon: const Icon(Icons.refresh),
           ),

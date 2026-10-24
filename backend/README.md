@@ -31,7 +31,19 @@ Run the service:
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-The OpenAPI interface is at `http://127.0.0.1:8000/docs`; liveness and database readiness are `/health/live` and `/health/ready`. Public user registration creates only the `user` role. The first admin is provisioned separately; an admin creates responder accounts and their capabilities from the Admin Portal.
+The OpenAPI interface is at `http://127.0.0.1:8000/docs`; liveness and database readiness are `/health/live` and `/health/ready`. Public user registration creates only the `user` role. The first provisioned administrator is a `super_admin`; subsequent provisioning creates restricted Co-Admins. Host the complete `web/` directory as one static site: open `/admin/index.html`, and serve `/activate.html` for invitation links. The dashboard uses this same API/database. Configure its Service URL field and include the site's origin in `CORS_ORIGINS`.
+
+## Administration, Co-Admins, and responder invitations
+
+Run `alembic upgrade head` after updating. Only a Super Admin can create Co-Admins or change their explicit permissions. The API checks each permission on every request, so permission revocation also applies to active sessions. A Co-Admin starts with no permissions unless the Super Admin grants them. The dashboard supports live incident/responder/resource views, assignment, invitation, audit review, and Co-Admin permission editing.
+
+The permissions migration promotes the oldest active legacy `admin` account to `super_admin` so an existing installation retains one usable root account; other legacy admins receive no Co-Admin permissions until a Super Admin grants them.
+
+Responder onboarding creates an inactive responder and a hashed, single-use token valid for 24 hours. Invitation creation/resend is limited to five attempts per administrator per hour in this single-process development service. Set `PUBLIC_APP_URL` to the deployed client origin. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, and `SMTP_FROM` to deliver invitation email. In development only, when SMTP is absent, the API returns an activation URL to the authenticated administrator; production requires HTTPS and treats missing or failed email delivery as an error without reporting the invite as sent. Serve `web/activate.html` at the configured public app URL. Passwords are established by the responder during activation. Use a shared gateway or datastore rate limiter, account recovery flow, and MFA before public production deployment.
+
+Mobile login no longer asks for a role or portal. The API returns the account's stored role; users and responders open their respective portals, while admin accounts receive a dashboard-only message in the mobile client.
+
+The legacy direct administrator endpoint refuses responder creation; responder accounts must use the invitation and activation flow.
 
 Run the backend workflow suite:
 

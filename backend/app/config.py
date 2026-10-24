@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     access_token_minutes: int = 30
     remember_me_days: int = Field(default=30, ge=1, le=365)
     cors_origins: str = "http://localhost:3000,http://localhost:8080"
+    public_app_url: str = "http://localhost:8000"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
     environment: str = "development"
     ai_provider: str = "none"
     ai_base_url: str = ""

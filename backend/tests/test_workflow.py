@@ -4,7 +4,7 @@ from sqlalchemy import select
 from datetime import datetime, timedelta, timezone
 
 from app.database import SessionLocal
-from app.models import AuthSession, User
+from app.models import AuthSession, ResponderProfile, User
 from app.security import hash_password
 
 
@@ -14,7 +14,7 @@ def create_admin():
             email="admin@example.com",
             display_name="Control Admin",
             password_hash=hash_password("AdminPassword-1234"),
-            role="admin",
+            role="super_admin",
         )
         db.add(admin)
         db.commit()
@@ -27,6 +27,16 @@ def login(client, email, password, portal):
     )
     assert response.status_code == 200, response.text
     return response.json()["access_token"]
+
+
+def create_responder(email, display_name, capabilities):
+    with SessionLocal() as db:
+        account = User(email=email, display_name=display_name, password_hash=hash_password("ResponderPassword-1234"), role="responder")
+        db.add(account)
+        db.flush()
+        db.add(ResponderProfile(user_id=account.id, capabilities=capabilities, available=True))
+        db.commit()
+        return account.id
 
 
 def auth(token):
@@ -47,15 +57,12 @@ def test_user_admin_responder_workflow_and_role_isolation(client):
     user_token = registered.json()["access_token"]
     admin_token = login(client, "admin@example.com", "AdminPassword-1234", "admin")
 
-    wrong_portal = client.post(
+    user_login = client.post(
         "/api/v1/auth/login",
-        json={
-            "email": "caller@example.com",
-            "password": "CallerPassword-1234",
-            "portal": "admin",
-        },
+        json={"email": "caller@example.com", "password": "CallerPassword-1234"},
     )
-    assert wrong_portal.status_code == 403
+    assert user_login.status_code == 200
+    assert user_login.json()["user"]["role"] == "user"
     assert (
         client.get("/api/v1/admin/dashboard", headers=auth(user_token)).status_code
         == 403
@@ -65,19 +72,7 @@ def test_user_admin_responder_workflow_and_role_isolation(client):
         == 403
     )
 
-    created_responder = client.post(
-        "/api/v1/admin/users",
-        headers=auth(admin_token),
-        json={
-            "email": "responder@example.com",
-            "display_name": "Medical Responder",
-            "password": "ResponderPassword-1234",
-            "role": "responder",
-            "capabilities": ["medical"],
-        },
-    )
-    assert created_responder.status_code == 201, created_responder.text
-    responder_id = created_responder.json()["id"]
+    responder_id = create_responder("responder@example.com", "Medical Responder", ["medical"])
     responder_token = login(
         client, "responder@example.com", "ResponderPassword-1234", "responder"
     )
@@ -300,17 +295,7 @@ def test_assignment_rejects_incompatible_resource_type(client):
             "password": "CallerPassword-1234",
         },
     ).json()["access_token"]
-    responder = client.post(
-        "/api/v1/admin/users",
-        headers=auth(admin_token),
-        json={
-            "email": "police-responder@example.com",
-            "display_name": "Police Responder",
-            "password": "ResponderPassword-1234",
-            "role": "responder",
-            "capabilities": ["police"],
-        },
-    ).json()
+    responder_id = create_responder("police-responder@example.com", "Police Responder", ["police"])
     report = client.post(
         "/api/v1/user/incidents",
         headers={
@@ -339,7 +324,7 @@ def test_assignment_rejects_incompatible_resource_type(client):
         f"/api/v1/admin/incidents/{report['id']}/assign",
         headers=auth(admin_token),
         json={
-            "responder_id": responder["id"],
+            "responder_id": responder_id,
             "resource_id": ambulance["id"],
         },
     )
@@ -490,24 +475,12 @@ def test_reassignment_revokes_previous_responder_and_releases_resource(client):
     responders = []
     responder_tokens = []
     for index in (1, 2):
-        created = client.post(
-            "/api/v1/admin/users",
-            headers=auth(admin_token),
-            json={
-                "email": f"field{index}@example.com",
-                "display_name": f"Field Responder {index}",
-                "password": f"ResponderPassword-{index}234",
-                "role": "responder",
-                "capabilities": ["medical"],
-            },
-        )
-        assert created.status_code == 201, created.text
-        responders.append(created.json()["id"])
+        responders.append(create_responder(f"field{index}@example.com", f"Field Responder {index}", ["medical"]))
         responder_tokens.append(
             login(
                 client,
                 f"field{index}@example.com",
-                f"ResponderPassword-{index}234",
+                "ResponderPassword-1234",
                 "responder",
             )
         )

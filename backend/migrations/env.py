@@ -1,11 +1,24 @@
 from logging.config import fileConfig
 
 from alembic import context
+from alembic.script.base import Script
 from sqlalchemy import engine_from_config, pool
 
 from app.config import get_settings
 from app.database import Base
 from app import models  # noqa: F401
+
+# macOS external volumes can leave AppleDouble sidecars beside Python files.
+# Alembic's default revision scanner accepts their `._*.py` names as scripts,
+# then fails while decoding their binary resource-fork contents.
+_list_py_dir = Script._list_py_dir
+
+
+def _list_python_migrations(cls, scriptdir, path):
+    return [item for item in _list_py_dir(scriptdir, path) if not item.name.startswith("._")]
+
+
+Script._list_py_dir = classmethod(_list_python_migrations)
 
 config = context.config
 if config.config_file_name is not None:

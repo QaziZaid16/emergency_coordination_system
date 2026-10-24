@@ -25,19 +25,18 @@ void main() {
     expect(find.text('CRITICAL'), findsOneWidget);
   });
 
-  testWidgets('admin sign-in explains backend configuration', (tester) async {
+  testWidgets('unified sign-in explains backend configuration', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: OpsTheme.dark,
         home: PortalLoginPage(
           api: ApiClient(baseUrl: ''),
-          role: 'admin',
           onSignedIn: (_) {},
         ),
       ),
     );
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('Admin Portal'), findsWidgets);
+    expect(find.text('Sign in'), findsWidgets);
     expect(find.text('Service URL not configured'), findsOneWidget);
     final rememberTile = tester.widget<CheckboxListTile>(
       find.byType(CheckboxListTile),
@@ -49,7 +48,7 @@ void main() {
       tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
       isTrue,
     );
-    await tester.tap(find.text('Sign in'));
+    await tester.tap(find.byType(FilledButton));
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.textContaining('API_BASE_URL'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -225,7 +224,7 @@ void main() {
   });
 
   testWidgets(
-    'remembered user restores only to the user portal and logout returns to chooser',
+    'remembered user restores to the user portal and logout returns to unified sign in',
     (tester) async {
       final storage = _TestSessionStorage();
       storage.values['coordination_api_session_v2'] = jsonEncode({
@@ -281,13 +280,13 @@ void main() {
 
       await tester.tap(find.byTooltip('Sign out'));
       await tester.pumpAndSettle();
-      expect(find.text('Choose your portal'), findsOneWidget);
+      expect(find.text('Sign in'), findsOneWidget);
       expect(storage.values, isEmpty);
       expect(tester.takeException(), isNull);
     },
   );
 
-  testWidgets('revoked active session returns to the portal chooser', (
+    testWidgets('revoked active session returns to unified sign in', (
     tester,
   ) async {
     final storage = _TestSessionStorage();
@@ -336,7 +335,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Choose your portal'), findsOneWidget);
+    expect(find.text('Sign in'), findsOneWidget);
     expect(
       find.text('Your session expired or was revoked. Sign in again.'),
       findsOneWidget,
@@ -359,14 +358,13 @@ void main() {
           data: const MediaQueryData(textScaler: TextScaler.linear(1.35)),
           child: PortalLoginPage(
             api: ApiClient(baseUrl: ''),
-            role: 'responder',
             onSignedIn: (_) {},
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Sign in to Responder Portal'), findsOneWidget);
+    expect(find.text('Sign in'), findsOneWidget);
     expect(find.text('Remember me on this device'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
-Role = Literal["admin", "user", "responder"]
+Role = Literal["super_admin", "admin", "user", "responder"]
 EmergencyType = Literal[
     "Ambulance / Medical Emergency",
     "Fire and Rescue",
@@ -20,6 +20,24 @@ class UserCreate(BaseModel):
     capabilities: list[str] = Field(default_factory=list, max_length=20)
 
 
+class CoAdminCreate(BaseModel):
+    email: EmailStr
+    display_name: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=12, max_length=128)
+    permissions: list[str] = Field(default_factory=list, max_length=20)
+
+
+class ResponderInviteCreate(BaseModel):
+    email: EmailStr
+    display_name: str = Field(min_length=1, max_length=120)
+    capabilities: list[str] = Field(min_length=1, max_length=20)
+
+
+class InvitationAccept(BaseModel):
+    token: str = Field(min_length=32, max_length=128)
+    password: str = Field(min_length=12, max_length=128)
+
+
 class UserRegister(BaseModel):
     email: EmailStr
     display_name: str = Field(min_length=1, max_length=120)
@@ -30,7 +48,6 @@ class UserRegister(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
-    portal: Role
     remember_me: bool = False
 
 
@@ -43,6 +60,7 @@ class UserView(BaseModel):
     email: EmailStr
     display_name: str
     role: Role
+    permissions: list[str] = Field(default_factory=list)
     model_config = ConfigDict(from_attributes=True)
 
 

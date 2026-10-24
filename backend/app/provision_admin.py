@@ -21,10 +21,12 @@ def main():
         email = args.email.strip().lower()
         if db.scalar(select(User).where(User.email == email)):
             raise SystemExit("That account already exists; provisioning did not change it.")
-        account = User(email=email, display_name=args.name.strip(), password_hash=hash_password(password), role="admin")
+        existing_super_admin = db.scalar(select(User).where(User.role == "super_admin", User.active.is_(True)))
+        role = "admin" if existing_super_admin else "super_admin"
+        account = User(email=email, display_name=args.name.strip(), password_hash=hash_password(password), role=role, permissions=[])
         db.add(account)
         db.commit()
-    print(f"Administrator provisioned for {email}. Store the password in your approved secret manager.")
+    print(f"{role.replace('_', ' ').title()} provisioned for {email}. Store the password in your approved secret manager.")
 
 
 if __name__ == "__main__":

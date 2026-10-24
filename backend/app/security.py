@@ -4,7 +4,7 @@ import secrets
 from uuid import uuid4
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pwdlib import PasswordHash
 from sqlalchemy import select
@@ -66,6 +66,7 @@ def issue_token(
 
 
 def current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     db: Session = Depends(get_db),
 ) -> User:
@@ -87,12 +88,58 @@ def current_user(
             or session.expires_at.replace(tzinfo=timezone.utc) <= now
             or claims.get("role") != user.role):
         raise unauthorized
+    if user.role == "admin":
+        path = request.url.path
+        required = None
+        if path.endswith("/incidents") or path.endswith("/changes") or path.startswith("/api/v1/incidents/"):
+            required = "update_incidents" if request.method in ("POST", "PATCH", "PUT", "DELETE") else "view_incidents"
+        if required and required not in (user.permissions or []):
+            alternative = (
+                path == "/api/v1/admin/responders" and request.method == "GET" and "manage_responders" in (user.permissions or [])
+            ) or (
+                path == "/api/v1/admin/resources" and request.method == "GET" and "manage_resources" in (user.permissions or [])
+            )
+            if not alternative:
+                raise HTTPException(status_code=403, detail=f"Missing permission: {required}")
     return user
 
 
 def require_roles(*roles: str):
-    def dependency(user: User = Depends(current_user)) -> User:
-        if user.role not in roles:
+    def dependency(request: Request, user: User = Depends(current_user)) -> User:
+        accepted = set(roles)
+        if "admin" in accepted:
+            accepted.add("super_admin")
+        if user.role not in accepted:
             raise HTTPException(status_code=403, detail="Your role cannot perform this operation")
+        if user.role == "admin":
+            path = request.url.path
+            method = request.method
+            required = "view_dashboard"
+            if "/admin/responders" in path:
+                required = "manage_responders" if method != "GET" else "view_dashboard"
+            elif "/admin/invitations" in path:
+                required = "manage_responders"
+            elif "/admin/users" in path:
+                required = "manage_users" if method != "GET" or request.query_params.get("role") == "user" else "manage_responders"
+            elif "/incidents/" in path and method in ("POST", "PATCH", "PUT", "DELETE"):
+                required = "assign_responders" if path.endswith(("/assign", "/reassign")) else "update_incidents"
+            elif "/incidents/" in path or path.endswith("/incidents"):
+                required = "view_incidents"
+            elif "/responders" in path or ("/users" in path and method != "GET"):
+                required = "manage_responders" if "/responders" in path else "manage_users"
+            elif "/resources" in path:
+                required = "manage_resources" if method != "GET" else "view_dashboard"
+            elif "/audit" in path:
+                required = "view_audit_logs"
+            elif "/analytics" in path:
+                required = "view_reports"
+            permissions = set(user.permissions or [])
+            listing_override = (
+                path == "/api/v1/admin/responders" and method == "GET" and "manage_responders" in permissions
+            ) or (
+                path == "/api/v1/admin/resources" and method == "GET" and "manage_resources" in permissions
+            )
+            if required not in permissions and not listing_override:
+                raise HTTPException(status_code=403, detail=f"Missing permission: {required}")
         return user
     return dependency

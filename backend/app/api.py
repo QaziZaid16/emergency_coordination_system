@@ -1,9 +1,14 @@
 from datetime import datetime, timedelta, timezone
 import re
 import secrets
+import smtplib
+from email.message import EmailMessage
+from collections import defaultdict, deque
+from threading import Lock
+import time
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from sqlalchemy import select, update
@@ -13,8 +18,8 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
 from app.dispatch import distance_km, priority_for
-from app.models import Assignment, AuditEvent, AuthSession, Incident, IncidentAnalysis, IncidentUpdate, ResponderProfile, Resource, User, now_utc
-from app.schemas import AssignmentCreate, AvailabilityUpdate, CopilotQuestion, IncidentCreate, LoginRequest, LoginResponse, MessageCreate, RefreshRequest, ResponderLocation, ResourceCreate, StatusUpdate, UserCreate, UserRegister, UserView
+from app.models import AccountInvitation, Assignment, AuditEvent, AuthSession, Incident, IncidentAnalysis, IncidentUpdate, ResponderProfile, Resource, User, now_utc
+from app.schemas import AssignmentCreate, AvailabilityUpdate, CoAdminCreate, CopilotQuestion, IncidentCreate, InvitationAccept, LoginRequest, LoginResponse, MessageCreate, RefreshRequest, ResponderInviteCreate, ResponderLocation, ResourceCreate, StatusUpdate, UserCreate, UserRegister, UserView
 from app.intelligence import analyze_incident_task, find_duplicate_candidates
 from app.security import bearer, current_user, encode_access_token, hash_password, hash_refresh_token, issue_token, require_roles, verify_password
 
@@ -22,6 +27,57 @@ router = APIRouter()
 ACTIVE_ASSIGNMENTS = ("Assigned", "Accepted", "En Route", "On Scene")
 RESPONDER_VISIBLE_ASSIGNMENTS = (*ACTIVE_ASSIGNMENTS, "Resolved", "Completed")
 NEXT_STATUS = {"Assigned": "Accepted", "Accepted": "En Route", "En Route": "On Scene", "On Scene": "Resolved"}
+_invite_attempts: dict[str, deque[float]] = defaultdict(deque)
+_invite_attempts_lock = Lock()
+
+
+def require_account_management(
+    request: Request,
+    admin: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    if admin.role == "super_admin":
+        return admin
+    if admin.role != "admin":
+        raise HTTPException(403, "Your role cannot manage accounts")
+    target = db.get(User, request.path_params.get("user_id", ""))
+    if not target or target.role in ("admin", "super_admin"):
+        raise HTTPException(404, "Account not found")
+    permission = "manage_responders" if target.role == "responder" else "manage_users"
+    if permission not in (admin.permissions or []):
+        raise HTTPException(403, f"Missing permission: {permission}")
+    return admin
+
+
+def limit_invitation_requests(actor_id: str):
+    now = time.monotonic()
+    with _invite_attempts_lock:
+        history = _invite_attempts[actor_id]
+        while history and now - history[0] >= 3600:
+            history.popleft()
+        if len(history) >= 5:
+            raise HTTPException(429, "Invitation limit reached. Try again later.")
+        history.append(now)
+
+
+def send_invitation_email(email: str, display_name: str, link: str) -> bool:
+    settings = get_settings()
+    if not settings.smtp_host:
+        return settings.environment == "development"
+    message = EmailMessage()
+    message["Subject"] = "Activate your Emergency Coordination responder account"
+    message["From"] = settings.smtp_from or settings.smtp_username
+    message["To"] = email
+    message.set_content(f"Hello {display_name},\n\nActivate your responder account using this one-time link (expires in 24 hours):\n{link}\n\nIf you did not expect this invitation, ignore this message.")
+    try:
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as server:
+            server.starttls()
+            if settings.smtp_username:
+                server.login(settings.smtp_username, settings.smtp_password)
+            server.send_message(message)
+        return True
+    except (OSError, smtplib.SMTPException):
+        return False
 
 
 def resource_matches_incident(kind: str, emergency_type: str) -> bool:
@@ -110,8 +166,6 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.email == body.email.lower()))
     if not user or not verify_password(body.password, user.password_hash) or not user.active:
         raise HTTPException(401, "Email or password is incorrect")
-    if user.role != body.portal:
-        raise HTTPException(403, "This account does not belong to the selected portal")
     token, expires, refresh_token, session_expires = issue_token(user, db, body.remember_me)
     return {
         "access_token": token,
@@ -141,6 +195,26 @@ def register_user(body: UserRegister, db: Session = Depends(get_db)):
         "session_expires_at": session_expires,
         "user": user,
     }
+
+
+@router.post("/auth/accept-invitation", status_code=200)
+def accept_invitation(body: InvitationAccept, db: Session = Depends(get_db)):
+    invitation = db.scalar(select(AccountInvitation).where(AccountInvitation.token_hash == hash_refresh_token(body.token)).with_for_update())
+    now = now_utc()
+    if not invitation or invitation.accepted_at or invitation.revoked_at or as_utc(invitation.expires_at) <= now:
+        raise HTTPException(400, "This invitation is invalid or expired. Ask an administrator for a new invitation.")
+    user = db.get(User, invitation.user_id)
+    if not user or user.role != "responder":
+        raise HTTPException(400, "This invitation is invalid or expired. Ask an administrator for a new invitation.")
+    user.password_hash = hash_password(body.password)
+    user.active = True
+    profile = db.get(ResponderProfile, user.id)
+    if profile:
+        profile.available = True
+    invitation.accepted_at = now
+    audit(db, user, "responder.invitation_accepted", "user", user.id)
+    db.commit()
+    return {"activated": True, "email": user.email}
 
 
 @router.post("/auth/refresh", response_model=LoginResponse)
@@ -195,7 +269,7 @@ def logout(user: User = Depends(current_user), credentials=Depends(bearer), db: 
 
 @router.get("/auth/me", response_model=UserView)
 def me(user: User = Depends(current_user)):
-    return user
+        return user
 
 
 @router.post("/user/incidents", status_code=201)
@@ -499,26 +573,170 @@ def admin_copilot(
 
 @router.get("/admin/responders")
 def admin_responders(admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
-    rows = db.execute(select(User, ResponderProfile).join(ResponderProfile, ResponderProfile.user_id == User.id).where(User.active)).all()
+    rows = db.execute(select(User, ResponderProfile).join(ResponderProfile, ResponderProfile.user_id == User.id).order_by(User.display_name)).all()
     result = []
     active_by_responder = {a.responder_id: a for a in db.scalars(select(Assignment).where(Assignment.status.in_(ACTIVE_ASSIGNMENTS))).all()}
     for account, profile in rows:
         active = active_by_responder.get(account.id)
+        active_incident = db.get(Incident, active.incident_id) if active else None
+        active_resource = db.get(Resource, active.resource_id) if active and active.resource_id else None
+        invitation = db.scalar(select(AccountInvitation).where(AccountInvitation.user_id == account.id).order_by(AccountInvitation.created_at.desc()))
         result.append({"id": account.id, "display_name": account.display_name, "email": account.email,
                        "capabilities": profile.capabilities, "available": profile.available,
+                       "active": account.active, "invitation_status": "accepted" if invitation and invitation.accepted_at else "revoked" if invitation and invitation.revoked_at else "pending" if invitation else "none",
+                       "invitation_expires_at": invitation.expires_at if invitation and not invitation.accepted_at and not invitation.revoked_at else None,
                        "active_incident_id": active.incident_id if active else None,
+                       "active_incident_reference": active_incident.reference if active_incident else None,
+                       "active_resource_name": active_resource.name if active_resource else None,
                        "latitude": profile.latitude, "longitude": profile.longitude,
                        "location_accuracy_m": profile.location_accuracy_m, "location_at": profile.location_at})
     return result
 
 
+@router.post("/admin/invitations/responders", status_code=201)
+def invite_responder(body: ResponderInviteCreate, admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
+    limit_invitation_requests(admin.id)
+    settings = get_settings()
+    if settings.environment == "production" and not settings.public_app_url.startswith("https://"):
+        raise HTTPException(503, "Responder activation requires an HTTPS public application URL")
+    email = str(body.email).lower()
+    if db.scalar(select(User).where(User.email == email)):
+        raise HTTPException(409, "An account with this email already exists")
+    capabilities = sorted({x.strip().lower() for x in body.capabilities if x.strip()})
+    if not capabilities:
+        raise HTTPException(422, "At least one responder capability is required")
+    user = User(email=email, display_name=body.display_name.strip(), password_hash=hash_password(secrets.token_urlsafe(40)), role="responder", active=False)
+    db.add(user)
+    db.flush()
+    db.add(ResponderProfile(user_id=user.id, capabilities=capabilities, available=False))
+    raw_token = secrets.token_urlsafe(48)
+    invitation = AccountInvitation(user_id=user.id, token_hash=hash_refresh_token(raw_token), expires_at=now_utc() + timedelta(hours=24))
+    db.add(invitation)
+    audit(db, admin, "responder.invitation_created", "user", user.id, {"capabilities": capabilities})
+    db.commit()
+    link = f"{get_settings().public_app_url.rstrip('/')}/activate.html?token={raw_token}"
+    delivered = send_invitation_email(email, user.display_name, link)
+    if not delivered:
+        invitation.revoked_at = now_utc()
+        user.active = False
+        audit(db, admin, "responder.invitation_delivery_failed", "user", user.id)
+        db.commit()
+        raise HTTPException(502, "Invitation email delivery failed. Check the mail configuration and resend.")
+    return {"user_id": user.id, "email": user.email, "invitation_status": "sent" if get_settings().smtp_host else "development_link", "expires_at": invitation.expires_at, "activation_url": link if not get_settings().smtp_host and get_settings().environment == "development" else None}
+
+
+@router.get("/admin/invitations")
+def list_invitations(_admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
+    rows = db.scalars(select(AccountInvitation).order_by(AccountInvitation.created_at.desc())).all()
+    return [{"id": x.id, "user_id": x.user_id, "email": (db.get(User, x.user_id).email if db.get(User, x.user_id) else ""),
+             "created_at": x.created_at, "expires_at": x.expires_at, "accepted_at": x.accepted_at, "revoked_at": x.revoked_at} for x in rows]
+
+
+@router.post("/admin/invitations/{invitation_id}/revoke")
+def revoke_invitation(invitation_id: str, admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
+    row = db.get(AccountInvitation, invitation_id)
+    if not row or row.accepted_at or row.revoked_at:
+        raise HTTPException(404, "Pending invitation not found")
+    row.revoked_at = now_utc()
+    account = db.get(User, row.user_id)
+    if account:
+        audit(db, admin, "responder.invitation_revoked", "user", account.id)
+    db.commit()
+    return {"revoked": True}
+
+
+@router.post("/admin/invitations/responders/{user_id}/resend", status_code=201)
+def resend_responder_invitation(user_id: str, admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
+    limit_invitation_requests(admin.id)
+    user = db.get(User, user_id)
+    if not user or user.role != "responder" or user.active:
+        raise HTTPException(404, "Pending responder invitation not found")
+    latest = db.scalar(select(AccountInvitation).where(AccountInvitation.user_id == user.id).order_by(AccountInvitation.created_at.desc()))
+    if latest and not latest.accepted_at and not latest.revoked_at and as_utc(latest.expires_at) > now_utc():
+        raise HTTPException(409, "The current invitation is still valid")
+    if latest and not latest.accepted_at and not latest.revoked_at:
+        latest.revoked_at = now_utc()
+    raw_token = secrets.token_urlsafe(48)
+    invitation = AccountInvitation(user_id=user.id, token_hash=hash_refresh_token(raw_token), expires_at=now_utc() + timedelta(hours=24))
+    db.add(invitation)
+    audit(db, admin, "responder.invitation_resent", "user", user.id)
+    db.commit()
+    link = f"{get_settings().public_app_url.rstrip('/')}/activate.html?token={raw_token}"
+    delivered = send_invitation_email(user.email, user.display_name, link)
+    if not delivered:
+        invitation.revoked_at = now_utc()
+        db.commit()
+        raise HTTPException(502, "Invitation email delivery failed. Check the mail configuration and try again.")
+    return {"invitation_status": "sent" if get_settings().smtp_host else "development_link", "expires_at": invitation.expires_at,
+            "activation_url": link if not get_settings().smtp_host and get_settings().environment == "development" else None}
+
+
 @router.get("/admin/users")
-def admin_users(role: str | None = Query(default=None, pattern="^(user|responder|admin)$"), admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
+def admin_users(role: str | None = Query(default=None, pattern="^(user|responder|admin|super_admin)$"), admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
+    # An unfiltered account listing includes user and administrator records. Co-Admins
+    # must request an explicitly scoped role so a management permission cannot expose
+    # accounts outside that role's authorization boundary.
+    if role is None and admin.role != "super_admin":
+        raise HTTPException(403, "Co-Admins must specify an account role to view")
+    if role in ("admin", "super_admin") and admin.role != "super_admin":
+        raise HTTPException(403, "Only a Super Admin may view protected administrator accounts")
     statement = select(User).order_by(User.created_at.desc())
     if role:
         statement = statement.where(User.role == role)
     rows = db.scalars(statement).all()
     return [{"id": row.id, "email": row.email, "display_name": row.display_name, "role": row.role, "active": row.active, "created_at": row.created_at} for row in rows]
+
+
+@router.get("/admin/coadmins")
+def list_coadmins(admin: User = Depends(require_roles("super_admin")), db: Session = Depends(get_db)):
+    rows = db.scalars(select(User).where(User.role == "admin").order_by(User.created_at.desc())).all()
+    return [{"id": row.id, "email": row.email, "display_name": row.display_name, "active": row.active,
+             "permissions": row.permissions or [], "created_at": row.created_at} for row in rows]
+
+
+@router.post("/admin/coadmins", status_code=201)
+def create_coadmin(body: CoAdminCreate, admin: User = Depends(require_roles("super_admin")), db: Session = Depends(get_db)):
+    email = str(body.email).lower()
+    if db.scalar(select(User).where(User.email == email)):
+        raise HTTPException(409, "An account with this email already exists")
+    allowed = {"view_dashboard", "view_incidents", "update_incidents", "assign_responders", "manage_responders", "manage_users", "manage_resources", "view_reports", "export_reports", "view_audit_logs"}
+    requested = sorted(set(body.permissions))
+    if not set(requested) <= allowed:
+        raise HTTPException(422, "One or more requested permissions are not supported")
+    account = User(email=email, display_name=body.display_name.strip(), password_hash=hash_password(body.password), role="admin", permissions=requested)
+    db.add(account)
+    db.flush()
+    audit(db, admin, "coadmin.created", "user", account.id, {"permissions": requested})
+    db.commit()
+    return {"id": account.id, "email": account.email, "display_name": account.display_name, "role": account.role, "permissions": account.permissions}
+
+
+@router.patch("/admin/coadmins/{user_id}/active")
+def set_coadmin_active(user_id: str, active: bool = Query(...), admin: User = Depends(require_roles("super_admin")), db: Session = Depends(get_db)):
+    account = db.get(User, user_id)
+    if not account or account.role != "admin":
+        raise HTTPException(404, "Co-Admin not found")
+    account.active = active
+    if not active:
+        db.query(AuthSession).filter(AuthSession.user_id == account.id, AuthSession.revoked_at.is_(None)).update({"revoked_at": now_utc()})
+    audit(db, admin, "coadmin.access_changed", "user", account.id, {"active": active})
+    db.commit()
+    return {"id": account.id, "active": account.active}
+
+
+@router.patch("/admin/coadmins/{user_id}/permissions")
+def update_coadmin_permissions(user_id: str, permissions: list[str], admin: User = Depends(require_roles("super_admin")), db: Session = Depends(get_db)):
+    account = db.get(User, user_id)
+    if not account or account.role != "admin":
+        raise HTTPException(404, "Co-Admin not found")
+    allowed = {"view_dashboard", "view_incidents", "update_incidents", "assign_responders", "manage_responders", "manage_users", "manage_resources", "view_reports", "export_reports", "view_audit_logs"}
+    normalized = sorted(set(permissions))
+    if not set(normalized) <= allowed:
+        raise HTTPException(422, "One or more requested permissions are not supported")
+    account.permissions = normalized
+    audit(db, admin, "coadmin.permissions_changed", "user", account.id, {"permissions": normalized})
+    db.commit()
+    return {"id": account.id, "permissions": normalized}
 
 
 @router.put("/admin/responders/{responder_id}/capabilities")
@@ -672,6 +890,8 @@ def retry_incident_analysis(
 
 @router.post("/admin/users", status_code=201, response_model=UserView)
 def create_account(body: UserCreate, admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
+    if body.role == "responder":
+        raise HTTPException(409, "Responders must be created through the email invitation and activation workflow")
     email = str(body.email).lower()
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(409, "An account with this email already exists")
@@ -687,10 +907,19 @@ def create_account(body: UserCreate, admin: User = Depends(require_roles("admin"
 
 
 @router.patch("/admin/users/{user_id}/active")
-def set_account_active(user_id: str, active: bool = Query(...), admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
+def set_account_active(user_id: str, active: bool = Query(...), admin: User = Depends(require_account_management), db: Session = Depends(get_db)):
     account = db.get(User, user_id)
-    if not account or account.role == "admin" or account.id == admin.id:
+    if not account or account.role in ("admin", "super_admin") or account.id == admin.id:
         raise HTTPException(404, "Account not found")
+    if account.role == "responder":
+        profile = db.get(ResponderProfile, account.id)
+        pending_invitation = db.scalar(select(AccountInvitation).where(AccountInvitation.user_id == account.id, AccountInvitation.accepted_at.is_(None), AccountInvitation.revoked_at.is_(None)))
+        if active and pending_invitation:
+            raise HTTPException(409, "Responder must complete the invitation before activation")
+        if not active and db.scalar(select(Assignment.id).where(Assignment.responder_id == account.id, Assignment.status.in_(ACTIVE_ASSIGNMENTS))):
+            raise HTTPException(409, "Reassign or resolve the active task before deactivating this responder")
+        if profile:
+            profile.available = active
     account.active = active
     audit(db, admin, "user.activation_changed", "user", account.id, {"active": active})
     if not active:
@@ -715,8 +944,29 @@ def set_availability(responder_id: str, body: AvailabilityUpdate, admin: User = 
 
 @router.get("/admin/resources")
 def list_resources(_admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
-    return [{"id": r.id, "name": r.name, "kind": r.kind, "quantity": r.quantity, "allocated": r.allocated, "available": r.quantity-r.allocated, "active": r.active}
-            for r in db.scalars(select(Resource).order_by(Resource.kind, Resource.name)).all()]
+    allocation_rows = db.execute(select(
+        Assignment.resource_id,
+        Assignment.incident_id,
+        Incident.reference,
+        User.display_name,
+    ).join(Incident, Incident.id == Assignment.incident_id)
+     .join(User, User.id == Assignment.responder_id)
+     .where(Assignment.resource_id.is_not(None), Assignment.status.in_(ACTIVE_ASSIGNMENTS))
+     .order_by(Assignment.assigned_at.desc())).all()
+    allocations_by_resource: dict[str, list[dict]] = {}
+    for row in allocation_rows:
+        allocations_by_resource.setdefault(row.resource_id, []).append({
+            "incident_id": row.incident_id,
+            "incident_reference": row.reference,
+            "responder_name": row.display_name,
+        })
+    result = []
+    for resource in db.scalars(select(Resource).order_by(Resource.kind, Resource.name)).all():
+        result.append({"id": resource.id, "name": resource.name, "kind": resource.kind,
+                       "quantity": resource.quantity, "allocated": resource.allocated,
+                       "available": resource.quantity-resource.allocated, "active": resource.active,
+                       "allocations": allocations_by_resource.get(resource.id, [])})
+    return result
 
 
 @router.post("/admin/resources", status_code=201)

@@ -34,6 +34,7 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(String(512))
     role: Mapped[str] = mapped_column(String(16), index=True)
+    permissions: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc
@@ -51,6 +52,17 @@ class ResponderProfile(Base):
     longitude: Mapped[float | None]
     location_accuracy_m: Mapped[float | None]
     location_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AccountInvitation(Base):
+    __tablename__ = "account_invitations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Incident(Base):

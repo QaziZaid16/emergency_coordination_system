@@ -1,15 +1,16 @@
 # Emergency Coordination System
 
-A Flutter and Dart Android app with three role-specific portals—Admin, User, and Responder—connected to a shared FastAPI service, plus the original isolated local training workspace. The service owns authenticated multi-user incidents, role access, assignments, resources, status history, and audit records. Backend and mobile clients are included; this repository does not include a hosted service or agency integration.
+A Flutter and Dart Android app with unified role-routed sign-in for Users and Responders, plus a responsive browser administration dashboard for Super Admins and permission-scoped Co-Admins. The clients share one FastAPI service for accounts, incidents, assignments, resources, status history, and audit records. The original isolated local training workspace remains available. This repository does not include a hosted service or agency integration.
 
 > **Development platform only. Do not use this app to report or coordinate a real emergency.** A configured instance can capture and share device location with its coordination backend, but it does not contact emergency services or dispatch an ambulance, fire service, or police. Priority is a prototype heuristic, not a validated triage policy. For a real emergency, use the emergency number and procedures applicable to your location.
 
 ## Contents
 
+- [Browser administration dashboard](#browser-administration-dashboard)
 - [Install the demo app](#install-the-demo-app)
 - [First launch](#first-launch)
 - [Configure the shared portals](#configure-the-shared-portals)
-- [Use the Admin Portal](#use-the-admin-portal)
+- [Use the administration dashboard](#browser-administration-dashboard)
 - [Use the User Portal](#use-the-user-portal)
 - [Use the Responder Portal](#use-the-responder-portal)
 - [Use the isolated training workspace](#use-the-isolated-training-workspace)
@@ -23,6 +24,10 @@ A Flutter and Dart Android app with three role-specific portals—Admin, User, a
 - [Troubleshooting](#troubleshooting)
 - [Project layout and documentation](#project-layout-and-documentation)
 - [Known limitations](#known-limitations)
+
+## Browser administration dashboard
+
+The dedicated responsive administrative client is in `web/admin/`. Host the complete `web/` directory on a static web server, open `/admin/index.html`, and sign in with the shared API URL and an authorized administrator account. Follow the backend README for Super Admin provisioning, migrations, invitation email settings, and local development-link behavior.
 
 ## Install the demo app
 
@@ -63,7 +68,7 @@ To verify the downloaded APK, run `shasum -a 256 release/emergency-coordination-
 
 ## First launch
 
-The app opens to a portal chooser. Choose **Admin Portal**, **User Portal**, or **Responder Portal** to sign in to the shared backend. New public registrations can create only user accounts. An administrator provisions the first admin with the backend CLI and creates responder accounts; changing the portal selection cannot elevate an account's stored role. **Open isolated training workspace** enters the original local-only simulator, whose sample records are stored separately on that device and are never imported into the shared database.
+The app opens to one sign-in form. The service verifies the account role and routes Users to the emergency portal and Responders to assigned tasks. Administrative accounts are directed to the browser dashboard and receive no mobile admin tools. New public registrations can create only user accounts. The first Super Admin is provisioned with the backend CLI. **Open isolated training workspace** enters the original local-only simulator, whose sample records are stored separately on that device and are never imported into the shared database.
 
 The supplied official logo is a red location pin containing a green coordination cross. The original vector is [`assets/brand/official-logo.svg`](assets/brand/official-logo.svg); Flutter renders this SVG directly. Proportion-preserving derivatives are used for Android adaptive, legacy-density, themed monochrome, splash, and PWA icons.
 
@@ -100,29 +105,24 @@ The mobile client compiles its API host into the app. For local USB-device devel
 flutter build apk --release --dart-define=API_BASE_URL=https://your-deployed-api.example
 ```
 
-If no API host is supplied, portal login shows that it is not configured. The app still offers the isolated training workspace. The sign-in screen has an unchecked **Remember me on this device** option. When selected, the app stores a rotating refresh credential in Android secure storage, validates the server identity and role at startup, and restores the matching portal. Access tokens last 30 minutes; the remembered server session lasts up to 30 days by default, after which the user signs in again. Without the option, the token stays in memory and reopening the app requires sign-in. Clients refresh backend data every 12 seconds and show errors when they cannot synchronize.
+If no API host is supplied, sign-in explains that it is not configured. The app still offers the isolated training workspace. The sign-in screen has an unchecked **Remember me on this device** option. When selected, the app stores a rotating refresh credential in Android secure storage, validates the server identity and role at startup, and restores the matching portal. Access tokens last 30 minutes; the remembered server session lasts up to 30 days by default, after which the user signs in again. Without the option, the token stays in memory and reopening the app requires sign-in. Clients refresh backend data every 12 seconds and show errors when they cannot synchronize.
 
 ### Initial account setup
 
-1. A server operator applies database migrations and runs `python -m app.provision_admin --email ... --name ...`. The password is entered twice at a hidden terminal prompt; there is no built-in default administrator.
-2. The administrator signs in through **Admin Portal** and creates responder accounts, including lower-case service capabilities such as `medical`, `fire`, `rescue`, `security`, or `other`.
-3. People may create user accounts from **User Portal**. Public registration cannot create an admin or responder.
-4. Use separate accounts and sessions to test each role. The app's role chooser is only a login entry point; the server makes every authorization decision.
+1. A server operator applies database migrations and runs `python -m app.provision_admin --email ... --name ...`. The password is entered twice at a hidden terminal prompt; the first active admin becomes Super Admin. There is no built-in default administrator.
+2. The Super Admin opens the browser dashboard, creates Co-Admins with selected permissions, and invites responders with capabilities such as `medical`, `fire`, `rescue`, `security`, or `other`. Responders set their password through the one-time email activation link.
+3. People may register as Users from the mobile sign-in screen. Public registration cannot create an admin or responder.
+4. Use separate accounts and sessions to test each role. The mobile client does not ask people to choose a role; the server makes every authorization decision.
 
-## Use the Admin Portal
+## Use the administration dashboard
 
-- **Dashboard** shows total, active, unassigned, assigned, in-progress, and resolved reports; responder availability; and resource allocation from the backend.
-- **Incidents** supports search by reference, type, description, location, priority, status, or responder, plus All, Active, Unassigned, and Resolved filters. Cards show priority rationale, severity, urgency, report time, reported location, and coordinates/accuracy when available.
-- Open an incident to review its original details, any validated decision-support summary, and possible duplicate candidates. Duplicate matches are suggestions only; reports are not auto-merged or discarded. AI/rules analysis never replaces the stored deterministic priority or an admin's dispatch decision.
-- Select **Assign** or **Reassign**, review eligible available responders, and select one. Distance appears only when the user's and responder's GPS readings are no older than 15 minutes and each has recorded accuracy of 100 m or better. Otherwise distance is shown as unavailable; the admin still chooses the responder.
-- An optional available resource can be allocated with an assignment. The backend checks current availability and serializes assignment/resource changes in a database transaction. Database constraints reject conflicting active assignments.
-- **Responders** can be created, have capabilities edited, and be marked available/unavailable. **Users** can be deactivated/reactivated; deactivation revokes their active sessions. **Resources** can be added, edited, enabled, or disabled. **Audit** shows administrative and operational changes.
-- **Copilot** answers read-only questions using fixed database queries: unassigned reports, incident references/counts, responder availability, resources, and descriptive historical metrics. It cannot write records or execute arbitrary SQL. Descriptive analytics cover at most 90 days and report missing averages as unavailable; they do not forecast future demand.
-- Resolve and cancel actions require confirmation. Both close the record and release the current responder/resource. This is an internal platform update; no external agency is notified.
+Host `web/admin/` on a static server, add that site's origin to backend `CORS_ORIGINS`, and sign in using the API URL plus the Super Admin or Co-Admin account. The overview, incident queue, responder list, user list, resource inventory, reports, and audit history load current API data. Co-Admins see only views permitted by their account, and the API rejects unauthorized requests even if a client control is bypassed.
+
+The Super Admin creates Co-Admins and grants a small set of permissions. Responder creation sends a one-time invitation link; in development without SMTP the dashboard displays the local activation link, while production requires a working SMTP configuration. Incident assignment remains a human decision and the API validates responder compatibility, availability, and resource capacity. More dashboard setup detail is in [backend/README.md](backend/README.md).
 
 ## Use the User Portal
 
-1. Choose **User Portal**. Register a user account or sign in. The server issues the role-bound session. Check **Remember me on this device** only on a trusted personal device; this allows automatic return to the User Portal for up to 30 days.
+1. Sign in or create a user account from the unified screen. The server issues the role-bound session and automatically opens the User Portal. Check **Remember me on this device** only on a trusted personal device; this allows automatic return for up to 30 days.
 2. Tap **SOS · Request help**. The app requests device location permission and attempts a fresh GPS fix with a 12-second timeout. It shows the timestamp and accuracy.
 3. If permission is denied, location services are off, or a current fix is unavailable, enter an address, area, or landmark manually. The app never substitutes the training sample coordinates.
 4. Select Ambulance / Medical, Fire and Rescue, Police / Security, or Other Emergency. Add a short description, review the confirmation, then submit.
@@ -135,7 +135,7 @@ Incident submission persists first and runs the separate analysis task afterward
 
 ## Use the Responder Portal
 
-- Sign in with an administrator-created responder account. The server returns only current assignments and that responder's permitted completed history.
+- Activate the invitation sent by the administrator, set a password, then sign in through the unified mobile screen. The server returns only current assignments and that responder's permitted completed history.
 - Open a task to review type, description, priority/rationale, report time, reported location, and coordinates if provided.
 - Advance one controlled step at a time: **Assigned → Accepted → En Route → On Scene → Resolved**. The server rejects invalid order or attempts to update another responder's task.
 - **Add update** records a message visible to the assigned user and admins. **Updates** shows the task history.
@@ -144,7 +144,7 @@ Incident submission persists first and runs the separate analysis task afterward
 
 ## Use the isolated training workspace
 
-Open **Isolated training workspace** on the portal chooser. The existing coordinator and responder demonstration workflows below continue to use a device-local JSON file, seeded sample records, simulated coordinates, and a role selector that is not authentication. Data entered here never syncs to the backend or transfers to another device.
+Open **Isolated training workspace** from the mobile sign-in screen. The existing coordinator and responder demonstration workflows below continue to use a device-local JSON file, seeded sample records, simulated coordinates, and a role selector that is not authentication. Data entered here never syncs to the backend or transfers to another device.
 
 ## Use the coordinator console
 
@@ -419,9 +419,15 @@ Detailed records:
 - [`docs/audit/architecture.md`](docs/audit/architecture.md) — design, data model, rules, and boundaries.
 - [`docs/audit/discovery.md`](docs/audit/discovery.md) — source inventory and target-directory decision.
 - [`docs/audit/test-results.md`](docs/audit/test-results.md) — executed checks, outcomes, evidence, and limits.
+- [`docs/audit/release-readiness-2026-10-24.md`](docs/audit/release-readiness-2026-10-24.md) — current Android, database, concurrency, security, accessibility, and recovery status.
+- [`docs/operations/backup-and-recovery.md`](docs/operations/backup-and-recovery.md) — PostgreSQL logical backup and isolated restore-drill procedure.
 - [`docs/audit/implementation-roadmap.md`](docs/audit/implementation-roadmap.md) — delivered prototype scope and deferred work.
 - [`backend/README.md`](backend/README.md) — API setup, roles, security, migrations, and local device integration.
 - [`SETUP.md`](SETUP.md) — condensed setup and handover procedure.
+
+## Latest release-readiness status
+
+As of 2026-10-24, `flutter analyze`, all 26 explicitly selected Flutter tests, all 19 backend tests, SQLite migration checks, and two SQLite concurrency tests pass. The Android build could not be verified in the current sandbox because Flutter cannot write its SDK cache. PostgreSQL migration/concurrency behavior, accessibility conformance, and backup restoration have not been verified. The Android release build still uses debug signing, and login/refresh rate limiting is not implemented. This remains a development platform, not a production or emergency-dispatch service; see the [release-readiness report](docs/audit/release-readiness-2026-10-24.md) for evidence and blockers.
 
 ## Known limitations
 

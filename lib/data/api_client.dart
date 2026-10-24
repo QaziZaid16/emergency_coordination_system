@@ -93,7 +93,7 @@ class ApiClient {
     if (!session.rememberMe ||
         session.refreshToken == null ||
         !session.sessionExpiresAt.isAfter(DateTime.now().toUtc()) ||
-        !{'admin', 'user', 'responder'}.contains(session.role)) {
+        !{'super_admin', 'admin', 'user', 'responder'}.contains(session.role)) {
       await clearStoredSession();
       return null;
     }
@@ -131,9 +131,8 @@ class ApiClient {
   Future<ApiSession> login(
     String email,
     String password,
-    String portal, {
-    required bool rememberMe,
-  }) async {
+    String portal,
+    {required bool rememberMe}) async {
     await _revokeStoredSession();
     sessionExpired.value = false;
     final json = await _request(
@@ -142,7 +141,6 @@ class ApiClient {
       body: {
         'email': email.trim(),
         'password': password,
-        'portal': portal,
         'remember_me': rememberMe,
       },
     );

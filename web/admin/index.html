@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0a101b">
+  <meta name="description" content="Emergency Coordination operations administration">
+  <title>Emergency Coordination · Operations</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main id="login" class="login-shell">
+    <section class="login-card" aria-labelledby="login-title">
+      <img src="../assets/brand/official-logo.svg" alt="Emergency Coordination" class="logo">
+      <p class="eyebrow">OPERATIONS PLATFORM</p>
+      <h1 id="login-title">Admin sign in</h1>
+      <p class="muted">Sign in with your authorized Super Admin or Co-Admin account.</p>
+      <form id="login-form">
+        <label for="api-url">Service URL<input id="api-url" type="url" placeholder="https://api.example.org" autocomplete="url" required></label>
+        <label for="email">Email<input id="email" type="email" autocomplete="username" required></label>
+        <label for="password">Password<input id="password" type="password" autocomplete="current-password" required></label>
+        <button class="primary" id="login-submit">Continue</button>
+        <p id="login-error" class="error" role="alert" aria-live="polite"></p>
+      </form>
+    </section>
+  </main>
+
+  <div id="app" class="app hidden">
+    <aside id="sidebar" class="sidebar" aria-label="Main navigation">
+      <div class="sidebar-top">
+        <a class="mobile-brand" href="#overview" aria-label="Emergency Coordination overview"><img src="../assets/brand/official-logo.svg" alt=""><span>SMART COORDINATE</span></a>
+        <button id="menu-toggle" class="icon-button" type="button" aria-label="Open navigation" aria-expanded="false">☰</button>
+      </div>
+      <div class="brand"><img src="../assets/brand/official-logo.svg" alt=""><span>SMART COORDINATE<br><b>Operations</b></span></div>
+      <nav aria-label="Operations pages">
+        <span class="nav-caption">Operations</span>
+        <button class="nav active" data-view="overview"><span class="nav-icon" aria-hidden="true">◫</span>Overview</button>
+        <button class="nav" data-view="incidents"><span class="nav-icon" aria-hidden="true">◉</span>Incident queue</button>
+        <button class="nav" data-view="responders"><span class="nav-icon" aria-hidden="true">♧</span>Responders</button>
+        <span class="nav-caption">Administration</span>
+        <button class="nav" data-view="users"><span class="nav-icon" aria-hidden="true">♙</span>User accounts</button>
+        <button class="nav" data-view="resources"><span class="nav-icon" aria-hidden="true">▦</span>Resources</button>
+        <button class="nav" data-view="reports"><span class="nav-icon" aria-hidden="true">▤</span>Reports</button>
+        <button class="nav" data-view="audit"><span class="nav-icon" aria-hidden="true">≋</span>Audit history</button>
+        <button id="coadmins-nav" class="nav hidden" data-view="coadmins"><span class="nav-icon" aria-hidden="true">♙</span>Co-Admins</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <span id="identity"></span>
+        <button id="logout" class="quiet small" type="button">Sign out</button>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div class="topbar-start">
+          <div id="breadcrumb" class="eyebrow">EMERGENCY COORDINATION / OPERATIONS</div>
+        </div>
+        <div class="topbar-tools">
+          <label class="topbar-search" aria-label="Search incidents"><input id="global-search" type="search" placeholder="Search incidents…" autocomplete="off"></label>
+          <div class="profile-chip" aria-label="Signed in administrator">
+            <span id="profile-avatar" class="profile-avatar" aria-hidden="true">AD</span>
+            <span class="profile-copy"><span id="profile-name">Administrator</span><small id="profile-role">Admin</small></span>
+          </div>
+        </div>
+      </header>
+      <section class="page-heading">
+        <div><p class="eyebrow">LIVE COORDINATION</p><h1 id="page-title">Operations overview</h1><p id="page-description" class="page-description">Current workload and operational activity from your coordination service.</p></div>
+        <div class="page-actions"><span id="last-updated" class="muted" aria-live="polite"></span><button id="refresh" class="secondary" type="button">↻ &nbsp; Refresh</button></div>
+      </section>
+      <p id="notice" class="notice hidden" role="status" aria-live="polite"></p>
+      <section id="view" aria-live="polite" aria-busy="false"></section>
+    </main>
+  </div>
+
+  <dialog id="dialog" aria-labelledby="dialog-title">
+    <form method="dialog" id="dialog-form">
+      <div id="dialog-content"></div>
+      <p id="dialog-error" class="error" role="alert" aria-live="polite"></p>
+      <div class="dialog-actions"><button class="secondary" value="cancel" type="submit">Cancel</button><button class="primary" id="dialog-save" value="default" type="button">Save changes</button></div>
+    </form>
+  </dialog>
+  <script src="./app.js"></script>
+</body>
+</html>
