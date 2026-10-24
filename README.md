@@ -110,6 +110,12 @@ It stores synthetic records in the app's private local JSON file. Its role selec
 
 For a local preview, serve `web/` as static files (for example, `python3 -m http.server 8080 --directory web`) and open `/admin/`. Configure the service URL in the dashboard's development login flow and add the page origin to backend `CORS_ORIGINS`.
 
+The dashboard is plain HTML, CSS, and JavaScript; there is no frontend bundler or chart dependency. The light operations console includes live workload cards, a seven-day SVG incident trend, an interactive SVG category donut with a filterable legend, current responder availability, an attention queue, and audit activity for accounts with audit permission. Reports support 7, 30, and 90-day periods and export only when the account has `export_reports`. The incident queue can be searched and filtered by status, priority, and category. Visualizations use the authenticated `/admin/dashboard`, `/admin/analytics`, `/incidents`, `/admin/responders`, and `/admin/audit` endpoints. They do not generate synthetic operational data. Missing daily values are displayed as zero; unavailable measures stay blank or show an empty state.
+
+The shared shell and visual system apply to the existing login, overview, incident queue/detail dialog, responder directory, users, resources, reports, audit history, notifications, automation policy, and Super Admin co-admin views. Existing forms, permission checks, dialogs, and server actions remain in `web/admin/app.js`; presentation and analytics enhancements load from `web/admin/redesign.css` and `web/admin/redesign.js`. Layouts reflow for narrow website viewports and retain horizontal scrolling for dense data tables. Keyboard focus rings, labelled filters, text status labels, chart summaries, keyboard-operable donut segments, and reduced-motion styles are included. Browser-based viewport, contrast, and screen-reader audits have not been run.
+
+Analytics definitions: assignment delay measures time from incident creation to each persisted assignment record (reassignments may add samples); assignment-to-completion measures time from assignment to a closed assignment record and is not travel or arrival time. Resource allocation on the analytics endpoint is a current snapshot, not a historical series. Responder availability is a current account-state snapshot and does not by itself indicate eligibility for a particular incident. Browser-only helper tests run with `node --test web/admin/analytics.test.cjs`.
+
 For hosted static deployment, set `ECS_API_BASE_URL` to the real API HTTPS origin and build with `node scripts/build_web_config.mjs --required`; output is `web/`. The generated configuration contains only the public API origin, not credentials. Full deployment steps and limits are in [hosting preparation](docs/operations/hosting.md).
 
 ## Configuration
@@ -194,6 +200,8 @@ dart format --output=none --set-exit-if-changed lib test
 flutter analyze
 flutter test test/api_client_test.dart test/api_configuration_test.dart test/dispatch_rules_test.dart test/operations_store_test.dart test/widget_test.dart
 node --check web/admin/app.js
+node --check web/admin/redesign.js
+node --test web/admin/analytics.test.cjs
 node --check scripts/build_web_config.mjs
 ```
 

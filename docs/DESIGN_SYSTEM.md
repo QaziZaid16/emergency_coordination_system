@@ -2,30 +2,31 @@
 
 ## Direction
 
-The product uses a dark navy operations canvas with blue primary actions. It keeps the interface calm and legible while preserving saturated red for critical incident status and destructive actions. Success, warning, and informational states use green, amber, and blue respectively. The Flutter app and browser dashboard share these semantic colors and the same overall contrast strategy.
+The Flutter app uses a dark navy canvas with blue primary actions. The browser operations dashboard uses a light canvas with a deep navy navigation rail, blue actions, and white data panels. Both preserve red for critical status and destructive actions, with green, amber, and blue for success, warning, and informational states.
 
 ## Tokens
 
 | Role | Value |
 |---|---|
-| Canvas | `#0A101B` |
-| Main surface | `#111D2D` |
-| Raised surface | `#162438` |
-| Sidebar | `#0E1725` (web navigation only) |
-| Border | `#26384E` |
-| Primary action | `#2583D2` |
-| Accent / selected | `#6DB7FB` |
-| Success | `#5DD2A9` |
-| Warning | `#EFBA68` |
-| Critical | `#F2777D` |
-| Main text | `#E8EDF5` |
-| Muted text | `#94A5BA` |
+| Flutter canvas | `#0A101B` |
+| Flutter main surface | `#111D2D` |
+| Flutter raised surface | `#162438` |
+| Web canvas | `#F3F6FA` |
+| Web main surface | `#FFFFFF` |
+| Web sidebar | `#12243A` |
+| Web border | `#E1E7EF` |
+| Primary action | `#2878D0` |
+| Success | `#23835F` |
+| Warning | `#B7791F` |
+| Critical | `#C83B45` |
+| Web main text | `#17263B` |
+| Web muted text | `#69788D` |
 
-The Flutter definitions are in `lib/presentation/design_system.dart`; the web tokens are custom properties at the top of `web/admin/style.css`. Both use platform system sans-serif fonts so the UI works offline and does not fetch a font at runtime.
+The Flutter definitions are in `lib/presentation/design_system.dart`; browser tokens (color, spacing, radii, chart palette, focus ring, and motion) and responsive styles are in `web/admin/redesign.css`, layered over existing component rules in `web/admin/style.css`. Both use platform system sans-serif fonts so the UI works offline and does not fetch a font at runtime. Dashboard visualizations are dependency-free SVG: a line chart for daily submissions and a keyboard-operable donut for incident categories, with text legends and drill-down to the incident filters.
 
 ## Hierarchy and spacing
 
-Flutter uses Material 3 text styles with 4/8/12/16/20/24 dp spacing, 14 dp controls, 18 dp cards, and 48 dp primary buttons. The web console uses a compact 12 px data-table baseline, 8 px control radii, and responsive content padding; operational labels and values take priority over decoration. Status always includes text alongside color.
+Flutter uses Material 3 text styles with 4/8/12/16/20/24 dp spacing, 14 dp controls, 18 dp cards, and 48 dp primary buttons. The web console uses 12 px data-table text, 8 px control radii, 11–13 px panel radii, responsive content spacing, and a four-measure overview. Status always includes text alongside color. Charts have text summaries, selectable legends or drill-down controls, and explicit empty states.
 
 ## Interaction
 
