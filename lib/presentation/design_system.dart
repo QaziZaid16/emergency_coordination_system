@@ -2,25 +2,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 abstract final class OpsColors {
-  static const ink = Color(0xFFF4F4F7);
-  static const inkSoft = Color(0xFFCACBD2);
-  static const muted = Color(0xFF9295A1);
-  static const canvas = Color(0xFF191A21);
-  static const surface = Color(0xFF22242D);
-  static const surfaceRaised = Color(0xFF292B35);
-  static const line = Color(0xFF343742);
-  static const primary = Color(0xFFFF535D);
-  static const primaryDark = Color(0xFFE84551);
-  static const primaryWash = Color(0xFF3B252C);
-  static const accent = Color(0xFFFF777E);
-  static const accentWash = Color(0xFF38262C);
-  static const success = Color(0xFF2BCC7A);
+  static const ink = Color(0xFFE8EDF5);
+  static const inkSoft = Color(0xFFBECADA);
+  static const muted = Color(0xFF94A5BA);
+  static const canvas = Color(0xFF0A101B);
+  static const surface = Color(0xFF111D2D);
+  static const surfaceRaised = Color(0xFF162438);
+  static const line = Color(0xFF26384E);
+  static const primary = Color(0xFF2583D2);
+  static const primaryDark = Color(0xFF1C6FB7);
+  static const primaryWash = Color(0xFF1A3551);
+  static const accent = Color(0xFF6DB7FB);
+  static const accentWash = Color(0xFF1A3551);
+  static const success = Color(0xFF5DD2A9);
   static const successWash = Color(0xFF20382F);
-  static const warning = Color(0xFFFFBD4A);
+  static const warning = Color(0xFFEFBA68);
   static const warningWash = Color(0xFF3A3224);
-  static const critical = Color(0xFFFF626A);
+  static const critical = Color(0xFFF2777D);
   static const criticalWash = Color(0xFF40252B);
-  static const blue = Color(0xFF4B9CFF);
+  static const blue = Color(0xFF6DB7FB);
   static const blueWash = Color(0xFF243247);
 }
 

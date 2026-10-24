@@ -35,3 +35,14 @@ See [`deep-bug-audit.md`](deep-bug-audit.md) for confirmed findings and remainin
 ## Release-readiness follow-up
 
 See [release-readiness-2026-10-24.md](release-readiness-2026-10-24.md) for the environment, security, accessibility, database, and recovery report. Follow-up results: backend suite 19 passed; two synchronized independent-session race tests passed on SQLite; clean APFS-staged Alembic `history`, `heads`, `upgrade head`, and `check` passed; JavaScript syntax and `git diff --check` passed. PostgreSQL, Android build, accessibility tooling/manual assistive technology, and backup/restore remain blocked or not run as detailed in that report.
+
+## Product redesign follow-up
+
+- `flutter analyze` — passed, no issues (Flutter 3.47.7 / Dart 3.13.5). The first sandboxed invocation could not write Flutter SDK cache metadata outside the repository; the requested local check then passed with SDK cache access.
+- `flutter test test/api_client_test.dart test/dispatch_rules_test.dart test/operations_store_test.dart test/widget_test.dart` — passed, 28 tests, including onboarding persistence/skip, login password validation, remembered session restore/logout, revoked sessions, narrow layout, API session behavior, and dispatch/storage workflows.
+- Unrestricted `flutter test` discovery — failed due non-source AppleDouble `._*.dart` sidecars in the mounted checkout. The explicit real test files above pass; CI runs on a normal Git checkout and lists these files explicitly.
+- `backend/.venv/bin/python -m pytest -q` — passed, 19 tests, including the new short-password login validation assertion. One pre-existing Starlette/httpx deprecation warning remains.
+- Demo seed — passed on a disposable SQLite database with 50 responders, ten assigned incidents, one resource, and demo role accounts. A repeat run and counts/assignment-capability invariants were checked. No project database was seeded during this run; generated temporary database credentials were discarded.
+- `node --check web/admin/app.js` and `git diff --check` — passed.
+- GitHub-hosted workflow execution, browser end-to-end/accessibility review, PostgreSQL, and physical-device testing — not run. No phone was installed, modified, or used.
+- Android debug build — passed from `/private/tmp/ecs_redesign_android_build` after excluding source-volume AppleDouble sidecars. Artifact: `/private/tmp/ecs_redesign_android_build/build/app/outputs/flutter-apk/app-debug.apk` (162,037,826 bytes, SHA-256 `5395a15367d718cc3556774eb1a1c3cf2c51bcf8baa489e8f06759f1bf2087b3`). The direct exFAT checkout build failed at `parseDebugLocalResources` on `._drawable`; no phone installation was attempted.

@@ -65,9 +65,15 @@ class ApiClient {
   Future<void>? _refreshing;
   static const _sessionKey = 'coordination_api_session_v2';
   static const _legacySessionKey = 'coordination_api_session_v1';
+  static const _onboardingKey = 'coordination_onboarding_complete_v1';
 
   bool get configured =>
       baseUrl.startsWith('https://') || baseUrl.startsWith('http://');
+
+  Future<bool> hasCompletedOnboarding() async =>
+      await _storage.read(_onboardingKey) == 'true';
+
+  Future<void> completeOnboarding() => _storage.write(_onboardingKey, 'true');
 
   Future<ApiSession?> restoreSession() async {
     // Earlier builds persisted every login without asking. Drop that legacy
@@ -131,8 +137,9 @@ class ApiClient {
   Future<ApiSession> login(
     String email,
     String password,
-    String portal,
-    {required bool rememberMe}) async {
+    String portal, {
+    required bool rememberMe,
+  }) async {
     await _revokeStoredSession();
     sessionExpired.value = false;
     final json = await _request(

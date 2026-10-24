@@ -52,6 +52,7 @@ class PortalEntryPage extends StatefulWidget {
 class _PortalEntryPageState extends State<PortalEntryPage> {
   ApiSession? session;
   bool restoring = true;
+  bool onboardingRequired = false;
   String? restoreError;
 
   @override
@@ -85,8 +86,11 @@ class _PortalEntryPageState extends State<PortalEntryPage> {
     try {
       final saved = await widget.api.restoreSession();
       if (!mounted) return;
+      final onboardingDone = await widget.api.hasCompletedOnboarding();
+      if (!mounted) return;
       setState(() {
         session = saved;
+        onboardingRequired = saved == null && !onboardingDone;
         restoring = false;
       });
     } on ApiException catch (e) {
@@ -104,6 +108,11 @@ class _PortalEntryPageState extends State<PortalEntryPage> {
         restoring = false;
       });
     }
+  }
+
+  Future<void> _completeOnboarding() async {
+    await widget.api.completeOnboarding();
+    if (mounted) setState(() => onboardingRequired = false);
   }
 
   void _signedIn(ApiSession value) => setState(() {
@@ -139,20 +148,39 @@ class _PortalEntryPageState extends State<PortalEntryPage> {
     if (restoring) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+    if (onboardingRequired && session == null && restoreError == null) {
+      return OnboardingPage(onComplete: _completeOnboarding);
+    }
     final current = session;
     if (current != null) {
       return switch (current.role) {
         'admin' || 'super_admin' => Scaffold(
           appBar: AppBar(title: const Text('Administration')),
-          body: Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.desktop_windows_outlined, size: 54),
-            const SizedBox(height: 16),
-            const Text('Administration is available in the web dashboard.', textAlign: TextAlign.center),
-            const SizedBox(height: 8),
-            const SelectableText('Open the administration dashboard in your browser.'),
-            const SizedBox(height: 16),
-            OutlinedButton(onPressed: _logout, child: const Text('Sign out')),
-          ]))),
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.desktop_windows_outlined, size: 54),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Administration is available in the web dashboard.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  const SelectableText(
+                    'Open the administration dashboard in your browser.',
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton(
+                    onPressed: _logout,
+                    child: const Text('Sign out'),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
         'responder' => ResponderPortal(
           api: widget.api,
@@ -175,10 +203,7 @@ class _PortalEntryPageState extends State<PortalEntryPage> {
           padding: const EdgeInsets.all(20),
           children: [
             const SizedBox(height: 14),
-            Text(
-              'Sign in',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
+            Text('Sign in', style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 8),
             const Text(
               'Use your account email and password. Your verified account role opens the right workspace automatically.',
@@ -210,14 +235,32 @@ class _PortalEntryPageState extends State<PortalEntryPage> {
               ),
               const SizedBox(height: 12),
             ],
-            Card(child: ListTile(
-              contentPadding: const EdgeInsets.all(16),
-              leading: const CircleAvatar(backgroundColor: OpsColors.primaryWash, child: Icon(Icons.login, color: OpsColors.primaryDark)),
-              title: const Text('Continue to your account', style: TextStyle(fontWeight: FontWeight.w800)),
-              subtitle: const Padding(padding: EdgeInsets.only(top: 7), child: Text('Users and responders are routed automatically. Admin accounts use the web dashboard.')),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => PortalLoginPage(api: widget.api, onSignedIn: _signedIn))),
-            )),
+            Card(
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(16),
+                leading: const CircleAvatar(
+                  backgroundColor: OpsColors.primaryWash,
+                  child: Icon(Icons.login, color: OpsColors.primaryDark),
+                ),
+                title: const Text(
+                  'Continue to your account',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: const Padding(
+                  padding: EdgeInsets.only(top: 7),
+                  child: Text(
+                    'Users and responders are routed automatically. Admin accounts use the web dashboard.',
+                  ),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        PortalLoginPage(api: widget.api, onSignedIn: _signedIn),
+                  ),
+                ),
+              ),
+            ),
             const SizedBox(height: 18),
             OutlinedButton.icon(
               onPressed: () => Navigator.of(context).push(
@@ -237,6 +280,256 @@ class _PortalEntryPageState extends State<PortalEntryPage> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class OnboardingPage extends StatefulWidget {
+  const OnboardingPage({super.key, required this.onComplete});
+  final Future<void> Function() onComplete;
+
+  @override
+  State<OnboardingPage> createState() => _OnboardingPageState();
+}
+
+class _OnboardingPageState extends State<OnboardingPage> {
+  static const slides = [
+    (
+      'Report an emergency',
+      'Share what happened and where. Review the details before sending a request to your coordination service.',
+      Icons.crisis_alert_outlined,
+    ),
+    (
+      'Coordinate with clarity',
+      'Follow incident status and, when authorized, see responder assignments made by your coordination team.',
+      Icons.hub_outlined,
+    ),
+    (
+      'Know what comes next',
+      'Check status updates from your account. This app does not contact emergency services or guarantee a response.',
+      Icons.notifications_active_outlined,
+    ),
+  ];
+  final controller = PageController();
+  int index = 0;
+  bool finishing = false;
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> finish() async {
+    if (finishing) return;
+    setState(() => finishing = true);
+    try {
+      await widget.onComplete();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not save this step. Please try again.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => finishing = false);
+    }
+  }
+
+  bool navigating = false;
+
+  Future<void> next() async {
+    if (finishing || navigating) return;
+    if (index == slides.length - 1) {
+      await finish();
+      return;
+    }
+    final nextIndex = index + 1;
+    setState(() {
+      navigating = true;
+      index = nextIndex;
+    });
+    try {
+      await controller.animateToPage(
+        nextIndex,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+      );
+    } finally {
+      if (mounted) setState(() => navigating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isLast = index == slides.length - 1;
+    return Scaffold(
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const CoordinationBrandMark(size: 42),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'Emergency Coordination',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: finishing || navigating ? null : finish,
+                        child: const Text('Skip'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: PageView.builder(
+                      controller: controller,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: slides.length,
+                      onPageChanged: (value) => setState(() => index = value),
+                      itemBuilder: (context, page) {
+                        final slide = slides[page];
+                        return Center(
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: 520,
+                              maxHeight: constraints.maxHeight,
+                            ),
+                            child: SingleChildScrollView(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Container(
+                                    width: 176,
+                                    height: 176,
+                                    decoration: BoxDecoration(
+                                      color: OpsColors.primaryWash,
+                                      borderRadius: BorderRadius.circular(48),
+                                      border: Border.all(color: OpsColors.line),
+                                    ),
+                                    child: Icon(
+                                      slide.$3,
+                                      size: 76,
+                                      color: OpsColors.accent,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 36),
+                                  Text(
+                                    slide.$1,
+                                    textAlign: TextAlign.center,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .headlineSmall,
+                                  ),
+                                  const SizedBox(height: 14),
+                                  Text(
+                                    slide.$2,
+                                    textAlign: TextAlign.center,
+                                    style: Theme.of(context).textTheme.bodyLarge
+                                        ?.copyWith(
+                                          height: 1.55,
+                                          color: OpsColors.inkSoft,
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(
+                      slides.length,
+                      (dot) => Semantics(
+                        label:
+                            'Slide ${dot + 1} of ${slides.length}${dot == index ? ', current' : ''}',
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                          width: dot == index ? 24 : 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: dot == index
+                                ? OpsColors.accent
+                                : OpsColors.line,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      if (index > 0)
+                        OutlinedButton(
+                          onPressed: finishing || navigating
+                              ? null
+                              : () async {
+                                  final previous = index - 1;
+                                  setState(() {
+                                    navigating = true;
+                                    index = previous;
+                                  });
+                                  try {
+                                    await controller.animateToPage(
+                                      previous,
+                                      duration: const Duration(
+                                        milliseconds: 200,
+                                      ),
+                                      curve: Curves.easeOut,
+                                    );
+                                  } finally {
+                                    if (mounted) {
+                                      setState(() => navigating = false);
+                                    }
+                                  }
+                                },
+                          child: const Text('Back'),
+                        )
+                      else
+                        const SizedBox(width: 72),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: finishing || navigating ? null : next,
+                          child: finishing
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Text(isLast ? 'Get started' : 'Next'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Development coordination platform · Not an emergency service',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
@@ -400,11 +693,8 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
                           ),
                         ),
                       ),
-                      validator: (v) =>
-                          v == null || v.length < (registering ? 12 : 1)
-                          ? registering
-                                ? 'Use at least 12 characters'
-                                : 'Enter your password'
+                      validator: (v) => v == null || v.length < 12
+                          ? 'Use at least 12 characters'
                           : null,
                     ),
                     CheckboxListTile(
@@ -443,19 +733,19 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
                       )
                     : Text(registering ? 'Create user account' : 'Sign in'),
               ),
-                TextButton(
-                  onPressed: busy
-                      ? null
-                      : () => setState(() {
-                          registering = !registering;
-                          error = null;
-                        }),
-                  child: Text(
-                    registering
-                        ? 'I already have an account'
-                        : 'Create a user account',
-                  ),
+              TextButton(
+                onPressed: busy
+                    ? null
+                    : () => setState(() {
+                        registering = !registering;
+                        error = null;
+                      }),
+                child: Text(
+                  registering
+                      ? 'I already have an account'
+                      : 'Create a user account',
                 ),
+              ),
               const SizedBox(height: 8),
               Text(
                 'Portal permissions are checked by the service after sign-in.',

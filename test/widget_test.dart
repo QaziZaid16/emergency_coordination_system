@@ -286,7 +286,7 @@ void main() {
     },
   );
 
-    testWidgets('revoked active session returns to unified sign in', (
+  testWidgets('revoked active session returns to unified sign in', (
     tester,
   ) async {
     final storage = _TestSessionStorage();
@@ -369,6 +369,36 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('login enforces the existing twelve-character password policy', (
+    tester,
+  ) async {
+    var requests = 0;
+    final api = ApiClient(
+      baseUrl: 'https://api.example.test',
+      client: MockClient((_) async {
+        requests++;
+        return http.Response('{}', 200);
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: OpsTheme.dark,
+        home: PortalLoginPage(api: api, onSignedIn: (_) {}),
+      ),
+    );
+    await tester.enterText(
+      find.byType(TextFormField).at(0),
+      'caller@example.test',
+    );
+    await tester.enterText(find.byType(TextFormField).at(1), 'short');
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+
+    expect(find.text('Use at least 12 characters'), findsOneWidget);
+    expect(requests, 0);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('official SVG brand mark renders with the dark design system', (
     tester,
   ) async {
@@ -388,6 +418,51 @@ void main() {
       findsOneWidget,
     );
     expect(OpsTheme.dark.brightness, Brightness.dark);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('first launch onboarding is three slides and persists Skip', (
+    tester,
+  ) async {
+    final storage = _TestSessionStorage();
+    final api = ApiClient(
+      baseUrl: '',
+      storage: storage,
+      client: MockClient((_) async => http.Response('{}', 200)),
+    );
+    final store = OperationsStore(File('/tmp/onboarding-training.json'));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: OpsTheme.dark,
+        home: PortalEntryPage(api: api, trainingStore: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Report an emergency'), findsOneWidget);
+    expect(find.text('Next'), findsOneWidget);
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('Coordinate with clarity'), findsOneWidget);
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('Know what comes next'), findsOneWidget);
+    expect(find.text('Get started'), findsOneWidget);
+    await tester.tap(find.text('Skip'));
+    await tester.pumpAndSettle();
+    expect(find.text('Sign in'), findsOneWidget);
+    expect(storage.values['coordination_onboarding_complete_v1'], 'true');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: OpsTheme.dark,
+        home: PortalEntryPage(api: api, trainingStore: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Sign in'), findsOneWidget);
+    expect(find.text('Report an emergency'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

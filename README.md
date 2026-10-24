@@ -66,9 +66,11 @@ The current repository APK is a local demonstration release signed with the gene
 
 To verify the downloaded APK, run `shasum -a 256 release/emergency-coordination-system-demo.apk` on macOS or `sha256sum release/emergency-coordination-system-demo.apk` on Linux.
 
+The checked-in APK was built before the current source follow-up and does not include the new onboarding and password-validation changes. A fresh debug build of this source was validated in `/private/tmp/ecs_redesign_android_build/build/app/outputs/flutter-apk/app-debug.apk`; it has no API URL compiled in and was not installed on a device. Do not treat the checked-in APK as evidence for the current source UI.
+
 ## First launch
 
-The app opens to one sign-in form. The service verifies the account role and routes Users to the emergency portal and Responders to assigned tasks. Administrative accounts are directed to the browser dashboard and receive no mobile admin tools. New public registrations can create only user accounts. The first Super Admin is provisioned with the backend CLI. **Open isolated training workspace** enters the original local-only simulator, whose sample records are stored separately on that device and are never imported into the shared database.
+On a first launch, the app presents three short onboarding slides before its sign-in entry screen. Completion is stored on the device and is not repeated; a valid remembered server session is checked first and resumes directly to the account's authorized portal. Users and Responders are routed from the server-verified account role. Administrative accounts are directed to the browser dashboard and receive no mobile admin tools. New public registrations can create only user accounts. The first Super Admin is provisioned with the backend CLI. **Open isolated training workspace** enters the original local-only simulator, whose sample records are stored separately on that device and are never imported into the shared database.
 
 The supplied official logo is a red location pin containing a green coordination cross. The original vector is [`assets/brand/official-logo.svg`](assets/brand/official-logo.svg); Flutter renders this SVG directly. Proportion-preserving derivatives are used for Android adaptive, legacy-density, themed monochrome, splash, and PWA icons.
 
@@ -98,6 +100,8 @@ Within the training workspace, the profile icon switches between the simulated *
 The repository contains the actual API implementation in [`backend/`](backend/README.md), its SQLAlchemy schema and initial Alembic migration, SQLite development support, PostgreSQL Compose configuration, secure administrator provisioning, and API tests. There is no hosted API URL, PostgreSQL service, TLS endpoint, push provider, or emergency-agency integration checked into this repository.
 
 To run a local backend, follow [backend/README.md](backend/README.md): create a Python environment, set a private `JWT_SECRET`, apply `alembic upgrade head`, provision the first administrator at a password prompt, then run Uvicorn. Docker Compose can run PostgreSQL locally when Docker is installed. PostgreSQL and Compose could not be exercised in the implementation environment; the tested backend uses in-memory SQLite.
+
+For a clearly synthetic, repeatable local demonstration dataset, follow [docs/DEMO_ACCOUNTS.md](docs/DEMO_ACCOUNTS.md). The opt-in seed command is restricted to development SQLite and creates 50 responder profiles plus role-based demo accounts and real assignment rows. Passwords are generated and shown only at first creation.
 
 The mobile client compiles its API host into the app. For local USB-device development, use `adb reverse tcp:8000 tcp:8000` and run Flutter with `--dart-define=API_BASE_URL=http://127.0.0.1:8000`; debug builds permit this loopback HTTP only. Release Android builds reject cleartext traffic and require an HTTPS endpoint:
 
@@ -409,6 +413,7 @@ test/                    Flutter dispatch, store, and role-login widget tests
 backend/tests/            API auth, ownership, assignment and lifecycle tests
 docs/requirements/       Source extraction and traceability matrix
 docs/audit/              Architecture, discovery, roadmap, verification
+docs/                    Design system, UX, CI, demos, external requirements
 release/                 Installable classroom-demonstration APK
 ```
 
@@ -419,6 +424,10 @@ Detailed records:
 - [`docs/audit/architecture.md`](docs/audit/architecture.md) — design, data model, rules, and boundaries.
 - [`docs/audit/discovery.md`](docs/audit/discovery.md) — source inventory and target-directory decision.
 - [`docs/audit/test-results.md`](docs/audit/test-results.md) — executed checks, outcomes, evidence, and limits.
+- [`docs/UX_UI_AUDIT.md`](docs/UX_UI_AUDIT.md) and [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) — UX findings and shared mobile/web tokens.
+- [`docs/DEMO_ACCOUNTS.md`](docs/DEMO_ACCOUNTS.md) — safe local demo seed command and first-run credentials.
+- [`docs/CI_CD_AUDIT.md`](docs/CI_CD_AUDIT.md) — CI workflow scope and remote verification limits.
+- [`docs/EXTERNAL_REQUIREMENTS.md`](docs/EXTERNAL_REQUIREMENTS.md) — existing environment configuration and secret locations.
 - [`docs/audit/release-readiness-2026-10-24.md`](docs/audit/release-readiness-2026-10-24.md) — current Android, database, concurrency, security, accessibility, and recovery status.
 - [`docs/operations/backup-and-recovery.md`](docs/operations/backup-and-recovery.md) — PostgreSQL logical backup and isolated restore-drill procedure.
 - [`docs/audit/implementation-roadmap.md`](docs/audit/implementation-roadmap.md) — delivered prototype scope and deferred work.
@@ -427,7 +436,7 @@ Detailed records:
 
 ## Latest release-readiness status
 
-As of 2026-10-24, `flutter analyze`, all 26 explicitly selected Flutter tests, all 19 backend tests, SQLite migration checks, and two SQLite concurrency tests pass. The Android build could not be verified in the current sandbox because Flutter cannot write its SDK cache. PostgreSQL migration/concurrency behavior, accessibility conformance, and backup restoration have not been verified. The Android release build still uses debug signing, and login/refresh rate limiting is not implemented. This remains a development platform, not a production or emergency-dispatch service; see the [release-readiness report](docs/audit/release-readiness-2026-10-24.md) for evidence and blockers.
+As of 2026-10-24, `flutter analyze`, the 28 explicitly selected Flutter tests, all 19 backend tests, SQLite migration checks, and two SQLite concurrency tests pass. The Android debug APK builds from a clean APFS staging copy; the exFAT checkout itself contains AppleDouble metadata that breaks broad test discovery and Gradle resource scanning. PostgreSQL migration/concurrency behavior, accessibility conformance, and backup restoration have not been verified. The Android release build still uses debug signing, and login/refresh rate limiting is not implemented. This remains a development platform, not a production or emergency-dispatch service; see the [release-readiness report](docs/audit/release-readiness-2026-10-24.md) for evidence and blockers.
 
 ## Known limitations
 

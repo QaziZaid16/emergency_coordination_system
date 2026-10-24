@@ -141,3 +141,7 @@ Web: serve the complete `web/` directory with a static server and configure its 
 6. Run dependency vulnerability scanning and a focused security review before any public deployment.
 
 No deployment was performed. This repository remains a development coordination platform, not an operational emergency dispatch service.
+
+## 14. Product redesign follow-up
+
+The later product redesign execution added first-launch onboarding, shared mobile/web color tokens, consistent 12-character login validation, local-only demo seeding, and a basic GitHub Actions quality workflow. The explicit Flutter suite now has 28 passing tests and analysis is clean. A debug APK was built successfully from `/private/tmp/ecs_redesign_android_build` after excluding AppleDouble sidecars; the checkout-volume attempt still fails while Gradle scans `._drawable`. The CI workflow has not run remotely, and no device was installed or used in this follow-up. See [`test-results.md`](test-results.md), [`UX_UI_AUDIT.md`](../UX_UI_AUDIT.md), and [`CI_CD_AUDIT.md`](../CI_CD_AUDIT.md).

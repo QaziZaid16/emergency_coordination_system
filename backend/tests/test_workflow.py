@@ -72,6 +72,12 @@ def test_user_admin_responder_workflow_and_role_isolation(client):
         == 403
     )
 
+    short_password = client.post(
+        "/api/v1/auth/login",
+        json={"email": "caller@example.com", "password": "short"},
+    )
+    assert short_password.status_code == 422
+
     responder_id = create_responder("responder@example.com", "Medical Responder", ["medical"])
     responder_token = login(
         client, "responder@example.com", "ResponderPassword-1234", "responder"
