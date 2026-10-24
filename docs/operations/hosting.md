@@ -110,6 +110,10 @@ The backend can send responder activation links through SMTP, but no provider is
 | `API_BASE_URL` | GitHub Actions repository variable | No; same public API URL for release APKs |
 | `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | GitHub Actions repository secrets | Yes |
 | `AI_PROVIDER` | Render environment | `none`; optional AI is not configured |
+| `OPENROUTER_API_KEY` | Render secret environment, only if enabling AI | Yes; never put in GitHub build variables, Flutter, or web config |
+| `OPENROUTER_MODEL` | Render environment | Defaults to `google/gemma-4-31b-it`; do not add `:free` unless that alternative is explicitly chosen |
+| `OPENROUTER_BASE_URL` | Render environment | Defaults to `https://openrouter.ai/api/v1` |
+| `AI_TIMEOUT_SECONDS`, `AI_MAX_ATTEMPTS`, `AI_RATE_LIMIT_PER_MINUTE`, `AI_SHARE_INCIDENT_LOCATION` | Render environment | Bounded request settings; location sharing defaults off |
 | `SMTP_*` | Render environment | Not configured; outbound SMTP restrictions apply |
 
 Never place database/JWT/SMTP/signing secrets in `ECS_API_BASE_URL`, `API_BASE_URL`, a Flutter `--dart-define`, web assets, workflow YAML, or Git.
@@ -141,7 +145,8 @@ None of these live tests have been run because the provider projects and credent
 - **Render Free API:** sleeps after 15 minutes without inbound traffic and can take about a minute to wake. Free web services have ephemeral filesystems, can restart, do not support pre-deploy commands or SSH, and share 750 free instance hours per workspace/month. No payment method means over-quota services can be suspended rather than billed; adding a payment method can permit charges for some overages. SMTP ports 25/465/587 are blocked. [Render free limits](https://render.com/docs/free).
 - **Supabase Free database:** $0 at current published quotas, up to 500 MB database size/project and 5 GB egress; low-activity projects can pause after a week. Automatic backups and point-in-time recovery are not included on Free. Keep manual encrypted backups and do not promise indefinite free persistence. [Supabase pricing](https://supabase.com/pricing), [pausing](https://supabase.com/docs/guides/platform/free-project-pausing), [backups](https://supabase.com/docs/guides/platform/backups).
 - **GitHub Actions:** standard hosted runners are free for public repositories; private repositories have plan-specific minute and storage quotas. APK artifacts in this workflow are retained for 30 days. [Actions usage](https://docs.github.com/en/actions/concepts/billing-and-usage).
-- **AI and push notifications:** no provider is configured; no AI or push costs are currently incurred by this deployment design.
+- **OpenRouter AI:** no key is configured and `AI_PROVIDER=none`, so the deployment design makes no inference calls. OpenRouter publicly lists `google/gemma-4-31b-it`; current standard endpoint pricing is about $0.09/M input and $0.34/M output tokens. This is not the separately named `:free` endpoint. Account access, model inference, limits, and costs for a specific account have not been verified; usage can incur charges. See [OpenRouter model pricing and endpoint details](https://openrouter.ai/google/gemma-4-31b-it). The app uses strict structured output only on provider endpoints that advertise the required parameter. Report descriptions are disclosed to the provider when enabled; the key remains in Render only.
+- **Push notifications:** no FCM/device delivery is implemented or configured, so no push cost is incurred.
 
 These are provider limits reviewed from official docs on the date above; they can change. No provider account was available to verify its signup/card flow or project-specific quota. These free tiers are suitable only for a small, synthetic academic demo, not reliable emergency operations.
 

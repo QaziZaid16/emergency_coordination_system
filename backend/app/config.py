@@ -20,11 +20,15 @@ class Settings(BaseSettings):
     smtp_from: str = ""
     environment: str = "development"
     ai_provider: str = "none"
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_model: str = "google/gemma-4-31b-it"
+    # Backward-compatible generic adapter settings for existing local setups.
     ai_base_url: str = ""
     ai_api_key: str = ""
     ai_model: str = ""
     ai_timeout_seconds: float = Field(default=8.0, ge=1, le=30)
-    ai_max_attempts: int = Field(default=1, ge=1, le=3)
+    ai_max_attempts: int = Field(default=2, ge=1, le=3)
     ai_rate_limit_per_minute: int = Field(default=60, ge=1, le=600)
     ai_share_incident_location: bool = False
     recommendation_distance_weight: int = Field(default=45, ge=0, le=100)
@@ -35,6 +39,18 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production(self):
+        if self.ai_provider.casefold() == "openrouter":
+            provider_url = urlsplit(self.openrouter_base_url)
+            if (
+                not self.openrouter_api_key
+                or provider_url.scheme != "https"
+                or not provider_url.hostname
+                or provider_url.username
+                or provider_url.password
+                or provider_url.query
+                or provider_url.fragment
+            ):
+                raise ValueError("OpenRouter requires a server-side key and HTTPS base URL")
         if self.environment.lower() != "production":
             return self
         if not self.database_url.startswith("postgresql+psycopg://"):

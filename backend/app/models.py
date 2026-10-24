@@ -119,6 +119,9 @@ class IncidentAnalysis(Base):
     validation_outcome: Mapped[str] = mapped_column(String(32), default="pending")
     usage_tokens: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error_type: Mapped[str | None] = mapped_column(String(80))
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc
     )

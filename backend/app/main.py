@@ -1,4 +1,5 @@
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +9,7 @@ from app.api import router
 from app.config import get_settings
 from app.database import Base, engine
 from app import models  # noqa: F401 - registers SQLAlchemy models
+from app.intelligence import run_analysis_recovery_worker
 
 
 @asynccontextmanager
@@ -15,7 +17,18 @@ async def lifespan(_app: FastAPI):
     # Local SQLite and automated tests may create tables directly. Deployments use Alembic.
     if settings.environment in ("development", "test"):
         Base.metadata.create_all(bind=engine)
-    yield
+    worker = (
+        asyncio.create_task(run_analysis_recovery_worker())
+        if settings.environment != "test"
+        else None
+    )
+    try:
+        yield
+    finally:
+        if worker is not None:
+            worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await worker
 
 
 settings = get_settings()

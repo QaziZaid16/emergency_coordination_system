@@ -199,6 +199,8 @@ def incident_view(db: Session, incident: Incident, include_analysis: bool = True
             "model": analysis.model,
             "result": analysis.result,
             "validation_outcome": analysis.validation_outcome,
+            "attempt_count": analysis.attempt_count,
+            "last_error_type": analysis.last_error_type,
             "completed_at": analysis.completed_at,
         } if analysis else None
     return result
@@ -1006,10 +1008,10 @@ def retry_incident_analysis(
     if not analysis:
         analysis = IncidentAnalysis(incident_id=incident.id)
         db.add(analysis)
-    elif analysis.status == "ready":
+    elif analysis.status == "ready" and not analysis.last_error_type:
         raise HTTPException(409, "Validated analysis is already available")
     elif analysis.status == "processing":
-        started = analysis.completed_at or analysis.created_at
+        started = analysis.completed_at or analysis.last_attempt_at or analysis.created_at
         if started.tzinfo is None:
             started = started.replace(tzinfo=timezone.utc)
         if now_utc() - started < timedelta(seconds=90):
@@ -1017,6 +1019,9 @@ def retry_incident_analysis(
     analysis.status = "pending"
     analysis.provider = "pending"
     analysis.validation_outcome = "retry_requested"
+    analysis.attempt_count = 0
+    analysis.last_attempt_at = None
+    analysis.last_error_type = None
     analysis.completed_at = None
     audit(db, admin, "incident.analysis_retry_requested", "incident", incident.id)
     db.commit()

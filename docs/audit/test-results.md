@@ -22,6 +22,14 @@ No hosted API, production database, HTTPS endpoint, push provider, map/routing p
 
 See [`deep-bug-audit.md`](deep-bug-audit.md) for confirmed findings and remaining security/design items. The connected-phone check was a launch smoke test; full role workflows were covered by automated tests and browser/API verification, not on-device interaction.
 
+## OpenRouter, Gemma, and durable analysis recovery (2026-10-24)
+
+- `backend/.venv/bin/python -m pytest backend/tests -q` — **42 passed**, one existing Starlette/httpx deprecation warning.
+- `DATABASE_URL=sqlite:////private/tmp/ecs-ai-migration.db ENVIRONMENT=test JWT_SECRET=test-only-secret-with-more-than-32-characters .venv/bin/alembic upgrade head`, run from `backend/`, and `alembic current` — migration succeeded; head is `9ce4b8b2241a`.
+- `flutter analyze` — clean. Flutter test suite — **31 passed**. Python `py_compile`, Node syntax checks, shell syntax checks, local Markdown link checks, secret-pattern scan, and `git diff --check` — passed.
+- OpenRouter request behavior is covered with a mocked async client; no live inference was sent. The public catalog lists `google/gemma-4-31b-it` and JSON-schema support, but the account key is absent, so account-specific availability and a live response remain unverified.
+- PostgreSQL concurrency/recovery, multi-instance worker behavior, hosted deployment, push delivery, and production APK build/install were not tested.
+
 ## Fresh verification on 2026-10-24
 
 - `flutter analyze` — clean on Flutter 3.47.7 / Dart 3.13.5.

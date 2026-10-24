@@ -9,10 +9,13 @@ Flutter (Admin / User / Responder portals; isolated training mode)
                   │ HTTPS bearer access token + idempotency key
                   │ rotating refresh token only when Remember Me is selected
                   ▼
-FastAPI (validation, role/ownership checks, refresh rotation, assignments, notifications, audit)
+FastAPI (validation, role/ownership checks, refresh rotation, assignments, analysis worker, notifications, audit)
                   │ SQLAlchemy transaction
                   ▼
 PostgreSQL for deployment / SQLite for local development and tests
+                  │ optional server-side HTTPS inference
+                  ▼
+OpenRouter → google/gemma-4-31b-it (disabled by default; decision support only)
 ```
 
 Incident intake records coordinator and reporter in-app events transactionally. If the Super Admin enabled automatic assignment, the same transaction checks the severity policy, fresh accurate incident/responder GPS, skill match, account/availability, and active-assignment constraints; then records the assignment, status history, audit decision, and recipient events together. The persistent notification inbox is recipient-scoped and deduplicated per account and event key. Notification events are in-app records only; there is no remote push/email delivery worker.
@@ -41,6 +44,8 @@ sequenceDiagram
 ```
 
 The repository contains the runnable API and role-specific workflows but no hosted service, verified agency integration, push delivery, or production deployment. Deployment must provide TLS, managed PostgreSQL, secure environment secrets, backups, monitoring, retention and incident-response policy. Mobile portals poll authorized data every 12 seconds. The browser dashboard refreshes its overview and notification inbox every 12 seconds while visible, and other pages on navigation or manual refresh.
+
+Incident submission writes a pending `IncidentAnalysis` record in the incident transaction. A post-commit task normally handles it immediately; an API-process worker recovers pending rows and processing records stale for five minutes. Attempt count and sanitized failure category are persisted, and the worker stops after three interrupted attempts. This is a database-backed job record and recovery loop, but not an independently scalable queue service. OpenRouter receives only the category, description, severity, and urgency by default. Its output is schema validated and checked against exact report evidence; it has no dispatch tools or authority.
 
 ## Authentication and session decisions
 
