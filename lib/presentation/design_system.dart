@@ -1,27 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+/// Mobile tokens sampled from the finalized admin website theme.
 abstract final class OpsColors {
-  static const ink = Color(0xFFE8EDF5);
-  static const inkSoft = Color(0xFFBECADA);
-  static const muted = Color(0xFF94A5BA);
-  static const canvas = Color(0xFF0A101B);
-  static const surface = Color(0xFF111D2D);
-  static const surfaceRaised = Color(0xFF162438);
-  static const line = Color(0xFF26384E);
-  static const primary = Color(0xFF2583D2);
-  static const primaryDark = Color(0xFF1C6FB7);
-  static const primaryWash = Color(0xFF1A3551);
-  static const accent = Color(0xFF6DB7FB);
-  static const accentWash = Color(0xFF1A3551);
-  static const success = Color(0xFF5DD2A9);
-  static const successWash = Color(0xFF20382F);
-  static const warning = Color(0xFFEFBA68);
-  static const warningWash = Color(0xFF3A3224);
-  static const critical = Color(0xFFF2777D);
-  static const criticalWash = Color(0xFF40252B);
-  static const blue = Color(0xFF6DB7FB);
-  static const blueWash = Color(0xFF243247);
+  static const ink = Color(0xFF191A18);
+  static const inkSoft = Color(0xFF45463F);
+  static const muted = Color(0xFF777870);
+  static const canvas = Color(0xFFEFEEE9);
+  static const surface = Color(0xFFFFFFFF);
+  static const surfaceRaised = Color(0xFFF6F5F1);
+  static const line = Color(0xFFE6E3DC);
+  static const primary = Color(0xFF191A18);
+  static const primaryDark = Color(0xFF191A18);
+  static const primaryWash = Color(0xFFFBF8C7);
+  static const accent = Color(0xFFD8CF45);
+  static const accentWash = Color(0xFFFBF8C7);
+  static const success = Color(0xFF2D7953);
+  static const successWash = Color(0xFFEAF3E8);
+  static const warning = Color(0xFFA46D19);
+  static const warningWash = Color(0xFFFBF2D9);
+  static const critical = Color(0xFFB9383C);
+  static const criticalWash = Color(0xFFFFF0ED);
+  static const blue = Color(0xFF809B68);
+  static const blueWash = Color(0xFFF0F3EA);
 }
 
 abstract final class OpsSpace {
@@ -35,28 +36,28 @@ abstract final class OpsSpace {
 }
 
 abstract final class OpsRadius {
-  static const double control = 14;
-  static const double card = 18;
-  static const double sheet = 24;
+  static const double control = 10;
+  static const double card = 15;
+  static const double sheet = 22;
   static const double pill = 99;
 }
 
 abstract final class OpsTheme {
   static const systemOverlayStyle = SystemUiOverlayStyle(
     statusBarColor: OpsColors.canvas,
-    statusBarIconBrightness: Brightness.light,
-    statusBarBrightness: Brightness.dark,
-    systemNavigationBarColor: OpsColors.canvas,
-    systemNavigationBarIconBrightness: Brightness.light,
+    statusBarIconBrightness: Brightness.dark,
+    statusBarBrightness: Brightness.light,
+    systemNavigationBarColor: OpsColors.surface,
+    systemNavigationBarIconBrightness: Brightness.dark,
     systemNavigationBarDividerColor: OpsColors.line,
   );
 
-  static ThemeData get dark {
-    const scheme = ColorScheme.dark(
+  static ThemeData get light {
+    const scheme = ColorScheme.light(
       primary: OpsColors.primary,
       onPrimary: Colors.white,
-      secondary: OpsColors.success,
-      onSecondary: Color(0xFF101A15),
+      secondary: OpsColors.accent,
+      onSecondary: OpsColors.ink,
       error: OpsColors.critical,
       onError: Colors.white,
       surface: OpsColors.surface,
@@ -68,12 +69,12 @@ abstract final class OpsTheme {
 
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
+      brightness: Brightness.light,
       colorScheme: scheme,
       scaffoldBackgroundColor: OpsColors.canvas,
       canvasColor: OpsColors.surface,
       dialogTheme: DialogThemeData(
-        backgroundColor: OpsColors.surfaceRaised,
+        backgroundColor: OpsColors.surface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(OpsRadius.sheet),
@@ -94,14 +95,14 @@ abstract final class OpsTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        toolbarHeight: 68,
+        toolbarHeight: 64,
         systemOverlayStyle: systemOverlayStyle,
         titleSpacing: OpsSpace.lg,
         titleTextStyle: TextStyle(
           color: OpsColors.ink,
-          fontSize: 18,
-          fontWeight: FontWeight.w800,
-          letterSpacing: -.25,
+          fontSize: 19,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -.3,
         ),
       ),
       cardTheme: CardThemeData(
@@ -136,10 +137,10 @@ abstract final class OpsTheme {
           borderSide: const BorderSide(color: OpsColors.critical, width: 1.5),
         ),
         filled: true,
-        fillColor: OpsColors.surfaceRaised,
+        fillColor: OpsColors.surface,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: OpsSpace.lg,
-          vertical: 15,
+          vertical: 14,
         ),
         labelStyle: const TextStyle(color: OpsColors.muted),
         hintStyle: const TextStyle(color: OpsColors.muted),
@@ -157,7 +158,7 @@ abstract final class OpsTheme {
             borderRadius: BorderRadius.circular(OpsRadius.control),
           ),
           textStyle: const TextStyle(
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w700,
             letterSpacing: .1,
           ),
         ),
@@ -188,7 +189,7 @@ abstract final class OpsTheme {
           final selected = states.contains(WidgetState.selected);
           return TextStyle(
             fontSize: 10,
-            fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
             color: selected ? OpsColors.primary : OpsColors.muted,
           );
         }),
@@ -210,7 +211,7 @@ abstract final class OpsTheme {
         labelStyle: const TextStyle(color: OpsColors.inkSoft),
         secondaryLabelStyle: const TextStyle(
           color: OpsColors.primary,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w700,
         ),
       ),
       dividerColor: OpsColors.line,
@@ -228,17 +229,16 @@ abstract final class OpsTheme {
         ),
         trackColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.selected)
-              ? OpsColors.primaryWash
+              ? OpsColors.accent
               : OpsColors.surfaceRaised,
         ),
       ),
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: OpsColors.surfaceRaised,
-        contentTextStyle: const TextStyle(color: OpsColors.ink),
+        backgroundColor: OpsColors.ink,
+        contentTextStyle: const TextStyle(color: Colors.white),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(OpsRadius.control),
-          side: const BorderSide(color: OpsColors.line),
         ),
       ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(
@@ -249,14 +249,14 @@ abstract final class OpsTheme {
         headlineSmall: TextStyle(
           color: OpsColors.ink,
           fontSize: 25,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w700,
           height: 1.12,
           letterSpacing: -.55,
         ),
         titleLarge: TextStyle(
           color: OpsColors.ink,
           fontSize: 20,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w700,
           letterSpacing: -.3,
         ),
         titleMedium: TextStyle(

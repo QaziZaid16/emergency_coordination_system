@@ -40,7 +40,7 @@ class EmergencyCoordinationApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
     title: 'Emergency Coordination',
     debugShowCheckedModeBanner: false,
-    theme: OpsTheme.dark,
+    theme: OpsTheme.light,
     home: PortalEntryPage(api: api, trainingStore: trainingStore),
   );
 }

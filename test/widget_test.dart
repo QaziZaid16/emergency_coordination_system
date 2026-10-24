@@ -30,7 +30,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
-        theme: OpsTheme.dark,
+        theme: OpsTheme.light,
         home: PortalLoginPage(
           api: ApiClient(baseUrl: ''),
           onSignedIn: (_) {},
@@ -88,7 +88,7 @@ void main() {
       );
       await tester.pumpWidget(
         MaterialApp(
-          theme: OpsTheme.dark,
+          theme: OpsTheme.light,
           home: PortalEntryPage(
             api: api,
             trainingStore: OperationsStore(File('/tmp/no-api-training.json')),
@@ -170,7 +170,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          theme: OpsTheme.dark,
+          theme: OpsTheme.light,
           home: AdminPortal(api: api, session: session, onLogout: () {}),
         ),
       );
@@ -259,7 +259,7 @@ void main() {
     );
     await tester.pumpWidget(
       MaterialApp(
-        theme: OpsTheme.dark,
+        theme: OpsTheme.light,
         home: AdminPortal(api: api, session: session, onLogout: () {}),
       ),
     );
@@ -322,7 +322,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          theme: OpsTheme.dark,
+          theme: OpsTheme.light,
           home: PortalEntryPage(api: api, trainingStore: store),
         ),
       );
@@ -377,7 +377,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: OpsTheme.dark,
+        theme: OpsTheme.light,
         home: PortalEntryPage(
           api: api,
           trainingStore: OperationsStore(
@@ -406,7 +406,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       MaterialApp(
-        theme: OpsTheme.dark,
+        theme: OpsTheme.light,
         home: MediaQuery(
           data: const MediaQueryData(textScaler: TextScaler.linear(1.35)),
           child: PortalLoginPage(
@@ -437,7 +437,7 @@ void main() {
     );
     await tester.pumpWidget(
       MaterialApp(
-        theme: OpsTheme.dark,
+        theme: OpsTheme.light,
         home: PortalLoginPage(api: api, onSignedIn: (_) {}),
       ),
     );
@@ -454,12 +454,12 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('official SVG brand mark renders with the dark design system', (
+  testWidgets('official SVG brand mark renders with the light design system', (
     tester,
   ) async {
     await tester.pumpWidget(
       MaterialApp(
-        theme: OpsTheme.dark,
+        theme: OpsTheme.light,
         home: const Scaffold(
           body: Center(child: CoordinationBrandMark(size: 72)),
         ),
@@ -472,7 +472,7 @@ void main() {
       find.bySemanticsLabel('Emergency Coordination System logo'),
       findsOneWidget,
     );
-    expect(OpsTheme.dark.brightness, Brightness.dark);
+    expect(OpsTheme.light.brightness, Brightness.light);
     expect(tester.takeException(), isNull);
   });
 
@@ -488,7 +488,7 @@ void main() {
     final store = OperationsStore(File('/tmp/onboarding-training.json'));
     await tester.pumpWidget(
       MaterialApp(
-        theme: OpsTheme.dark,
+        theme: OpsTheme.light,
         home: PortalEntryPage(api: api, trainingStore: store),
       ),
     );
@@ -514,7 +514,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpWidget(
       MaterialApp(
-        theme: OpsTheme.dark,
+        theme: OpsTheme.light,
         home: PortalEntryPage(api: api, trainingStore: store),
       ),
     );
@@ -525,7 +525,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('dark training workspace remains usable on a compact display', (
+  testWidgets('training workspace remains usable on a compact display', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(320, 640);
@@ -537,7 +537,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: OpsTheme.dark,
+        theme: OpsTheme.light,
         home: MediaQuery(
           data: const MediaQueryData(textScaler: TextScaler.linear(1.25)),
           child: HomePage(store: store),
@@ -564,7 +564,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: OpsTheme.dark,
+        theme: OpsTheme.light,
         home: IncidentDetailPage(
           store: store,
           incident: store.activeIncidents.first,

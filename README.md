@@ -79,6 +79,14 @@ To create the documented synthetic SQLite dataset, follow [demo account setup](d
 
 ### Android
 
+The mobile app uses the same warm neutral surfaces, near-black primary actions,
+yellow highlight, sage availability/status accents, and rounded white cards as
+the finalized website. The shared tokens and Material components live in
+`lib/presentation/design_system.dart`; the phone keeps role-based user and
+responder flows with bottom navigation and vertically scrolling content rather
+than reproducing the website sidebar. The login, onboarding, remembered-session,
+and backend role-routing behavior are unchanged.
+
 With the backend running on the same computer and a USB-connected Android device:
 
 ```sh

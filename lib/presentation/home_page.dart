@@ -324,7 +324,7 @@ class _TrainingBanner extends StatelessWidget {
     width: double.infinity,
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: OpsColors.surfaceRaised,
+      color: OpsColors.primary,
       borderRadius: BorderRadius.circular(20),
     ),
     child: Row(
