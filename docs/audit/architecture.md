@@ -23,7 +23,7 @@ The repository contains the runnable API and role-specific workflows but no host
 - Remember Me is unchecked by default. Without it, the access token stays in app memory and reopening the app requires sign-in.
 - With it, the API issues a 30-minute access token and a random refresh token. Only the refresh-token hash is persisted server-side; the client stores the refresh token in Android secure storage and rotates it when refreshing access.
 - Remembered sessions expire at the configured deadline (30 days by default; `REMEMBER_ME_DAYS` allows 1–365). Logout and account deactivation revoke the server session.
-- App startup validates stored identity and role using `/auth/me` before selecting a dashboard. A service outage never authenticates from locally cached identity; the app stays at the portal chooser and offers retry.
+- App startup validates stored identity and role using `/auth/me` before selecting a workspace. A service outage never authenticates from locally cached identity; the direct login remains visible with an explicit retry for a saved session.
 - Older builds persisted all sessions without an explicit choice. The new client deletes those legacy session entries instead of assuming consent.
 - Refresh tokens are bearer secrets: production still needs login/refresh rate limits, monitoring, deployment-level concurrency testing, and a selected retention policy.
 

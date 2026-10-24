@@ -1,0 +1,8 @@
+{
+  "buildCommand": "node scripts/build_web_config.mjs --required",
+  "outputDirectory": "web",
+  "rewrites": [
+    { "source": "/admin", "destination": "/admin/index.html" },
+    { "source": "/activate", "destination": "/activate.html" }
+  ]
+}

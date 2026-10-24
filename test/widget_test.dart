@@ -25,7 +25,9 @@ void main() {
     expect(find.text('CRITICAL'), findsOneWidget);
   });
 
-  testWidgets('unified sign-in explains backend configuration', (tester) async {
+  testWidgets('direct sign-in stays usable without backend configuration', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: OpsTheme.dark,
@@ -37,7 +39,10 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('Sign in'), findsWidgets);
-    expect(find.text('Service URL not configured'), findsOneWidget);
+    expect(find.text('Welcome back'), findsOneWidget);
+    expect(find.text('Continue to your account'), findsNothing);
+    expect(find.text('Open isolated training workspace'), findsNothing);
+    expect(find.textContaining('API_BASE_URL'), findsNothing);
     final rememberTile = tester.widget<CheckboxListTile>(
       find.byType(CheckboxListTile),
     );
@@ -50,7 +55,10 @@ void main() {
     );
     await tester.tap(find.byType(FilledButton));
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.textContaining('API_BASE_URL'), findsOneWidget);
+    expect(
+      find.textContaining('Sign-in is temporarily unavailable'),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -364,7 +372,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Sign in'), findsOneWidget);
+    expect(find.text('Welcome back'), findsOneWidget);
+    await tester.drag(find.byType(ListView).last, const Offset(0, -240));
+    await tester.pumpAndSettle();
     expect(find.text('Remember me on this device'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -450,6 +460,9 @@ void main() {
     expect(find.text('Get started'), findsOneWidget);
     await tester.tap(find.text('Skip'));
     await tester.pumpAndSettle();
+    expect(find.text('Welcome back'), findsOneWidget);
+    expect(find.text('Continue to your account'), findsNothing);
+    expect(find.text('Open isolated training workspace'), findsNothing);
     expect(find.text('Sign in'), findsOneWidget);
     expect(storage.values['coordination_onboarding_complete_v1'], 'true');
 
@@ -461,6 +474,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.text('Welcome back'), findsOneWidget);
     expect(find.text('Sign in'), findsOneWidget);
     expect(find.text('Report an emergency'), findsNothing);
     expect(tester.takeException(), isNull);

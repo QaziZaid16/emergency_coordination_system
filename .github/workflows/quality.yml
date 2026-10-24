@@ -46,5 +46,6 @@ jobs:
       - run: flutter pub get
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
-      - run: flutter test test/api_client_test.dart test/dispatch_rules_test.dart test/operations_store_test.dart test/widget_test.dart
+      - run: flutter test test/api_client_test.dart test/api_configuration_test.dart test/dispatch_rules_test.dart test/operations_store_test.dart test/widget_test.dart
       - run: node --check web/admin/app.js
+      - run: node --check scripts/build_web_config.mjs

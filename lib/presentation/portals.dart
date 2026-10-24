@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -190,98 +191,13 @@ class _PortalEntryPageState extends State<PortalEntryPage> {
         _ => UserPortal(api: widget.api, session: current, onLogout: _logout),
       };
     }
-    return Scaffold(
-      appBar: AppBar(
-        leading: const Padding(
-          padding: EdgeInsets.all(8),
-          child: CoordinationBrandMark(size: 48),
-        ),
-        title: const Text('Emergency Coordination'),
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            const SizedBox(height: 14),
-            Text('Sign in', style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 8),
-            const Text(
-              'Use your account email and password. Your verified account role opens the right workspace automatically.',
-            ),
-            const SizedBox(height: 18),
-            if (restoreError != null) ...[
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        restoreError!.startsWith('Signed out')
-                            ? 'Remote logout not confirmed'
-                            : 'Session not restored',
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(restoreError!),
-                      TextButton.icon(
-                        onPressed: _restore,
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Retry session check'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
-            Card(
-              child: ListTile(
-                contentPadding: const EdgeInsets.all(16),
-                leading: const CircleAvatar(
-                  backgroundColor: OpsColors.primaryWash,
-                  child: Icon(Icons.login, color: OpsColors.primaryDark),
-                ),
-                title: const Text(
-                  'Continue to your account',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                subtitle: const Padding(
-                  padding: EdgeInsets.only(top: 7),
-                  child: Text(
-                    'Users and responders are routed automatically. Admin accounts use the web dashboard.',
-                  ),
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        PortalLoginPage(api: widget.api, onSignedIn: _signedIn),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            OutlinedButton.icon(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => HomePage(store: widget.trainingStore),
-                ),
-              ),
-              icon: const Icon(Icons.science_outlined),
-              label: const Text('Open isolated training workspace'),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              widget.api.configured
-                  ? 'Shared service: ${widget.api.baseUrl}'
-                  : 'Shared service is not configured in this build.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-      ),
+    return PortalLoginPage(
+      key: const ValueKey('direct-login'),
+      api: widget.api,
+      trainingStore: widget.trainingStore,
+      initialMessage: restoreError,
+      onRetrySession: () => unawaited(_restore()),
+      onSignedIn: _signedIn,
     );
   }
 }
@@ -541,9 +457,15 @@ class PortalLoginPage extends StatefulWidget {
     super.key,
     required this.api,
     required this.onSignedIn,
+    this.trainingStore,
+    this.initialMessage,
+    this.onRetrySession,
   });
   final ApiClient api;
   final ValueChanged<ApiSession> onSignedIn;
+  final OperationsStore? trainingStore;
+  final String? initialMessage;
+  final VoidCallback? onRetrySession;
   @override
   State<PortalLoginPage> createState() => _PortalLoginPageState();
 }
@@ -558,6 +480,13 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
   bool obscure = true;
   bool rememberMe = false;
   String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    error = widget.initialMessage;
+  }
+
   @override
   void dispose() {
     name.dispose();
@@ -569,7 +498,7 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
   Future<void> submit() async {
     if (!widget.api.configured) {
       setState(
-        () => error = 'This build has no shared service URL. Configure API_BASE_URL and rebuild to use authenticated portals.',
+        () => error = 'Sign-in is temporarily unavailable. Please contact your service administrator.',
       );
       return;
     }
@@ -594,7 +523,6 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
             );
       if (mounted) {
         widget.onSignedIn(value);
-        Navigator.of(context).pop();
       }
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
@@ -605,9 +533,7 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    const role = ('Your account', Icons.login, 'Sign in to your account.');
     return Scaffold(
-      appBar: AppBar(title: Text(role.$1)),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),
@@ -618,15 +544,15 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
               const Center(child: CoordinationBrandMark(size: 72)),
               const SizedBox(height: 14),
               Text(
-                registering ? 'Create a user account' : 'Sign in',
+                registering ? 'Create your account' : 'Welcome back',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 8),
               Text(
-                widget.api.configured
-                    ? widget.api.baseUrl
-                    : 'Service URL not configured',
+                registering
+                    ? 'Register to report and follow incidents.'
+                    : 'Sign in to continue to your workspace.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
@@ -717,9 +643,26 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
               if (error != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    error!,
-                    style: const TextStyle(color: OpsColors.critical),
+                  child: MaterialBanner(
+                    content: Text(error!),
+                    leading: const Icon(Icons.info_outline),
+                    actions: [
+                      TextButton(
+                        onPressed: () => setState(() => error = null),
+                        child: const Text('Dismiss'),
+                      ),
+                      if (widget.initialMessage != null &&
+                          widget.initialMessage == error)
+                        TextButton(
+                          onPressed: () {
+                            setState(() => error = null);
+                            // Startup has already checked once; a retry happens
+                            // only when the user explicitly requests it.
+                            widget.onRetrySession?.call();
+                          },
+                          child: const Text('Retry'),
+                        ),
+                    ],
                   ),
                 ),
               const SizedBox(height: 18),
@@ -748,10 +691,29 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Portal permissions are checked by the service after sign-in.',
+                'Your account permissions are verified securely at sign-in.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+              if (widget.trainingStore != null &&
+                  kDebugMode &&
+                  const bool.fromEnvironment('ENABLE_TRAINING_WORKSPACE')) ...[
+                const SizedBox(height: 16),
+                TextButton.icon(
+                  onPressed: busy
+                      ? null
+                      : () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) =>
+                                HomePage(store: widget.trainingStore!),
+                          ),
+                        ),
+                  icon: const Icon(Icons.science_outlined),
+                  label: const Text(
+                    'Developer tools · local training workspace',
+                  ),
+                ),
+              ],
             ],
           ),
         ),

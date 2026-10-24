@@ -1,12 +1,12 @@
 # Setup and handover
 
-This is a development implementation with an Android Flutter client and FastAPI backend. Shared portals work only after configuring and running the backend. The local Training Workspace remains separate and available without a server.
+This is a development implementation with an Android Flutter client and FastAPI backend. Shared portals work only after configuring and running the backend. The local Training Workspace remains separate and appears only in an explicitly enabled debug build.
 
 ## Android client
 
 1. Install Flutter 3.47.7/Dart 3.13.5 (or a compatible later stable SDK), Android Studio/Android SDK, and Platform Tools.
 2. On the phone, enable USB debugging and approve this computer. Confirm `flutter devices` lists the phone.
-3. Run `flutter pub get` and `flutter run -d <device-id>` to launch with the isolated training workspace available.
+3. Run `flutter pub get` and `flutter run -d <device-id>`; first launch shows onboarding, then the direct login screen.
 
 To use the authenticated portals with a backend running on this development computer, first start the backend below, then:
 
@@ -15,13 +15,14 @@ adb reverse tcp:8000 tcp:8000
 flutter run -d <device-id> --dart-define=API_BASE_URL=http://127.0.0.1:8000
 ```
 
-Android debug builds permit loopback HTTP for this local-only setup. Release builds disallow cleartext and require an HTTPS host:
+Android debug builds permit loopback HTTP for this local-only setup. Release builds disallow cleartext and require a real HTTPS host:
 
 ```sh
-flutter build apk --release --dart-define=API_BASE_URL=https://api.example.org
+# Set API_BASE_URL to the actual deployed HTTPS origin first.
+sh scripts/build_android_release.sh
 ```
 
-No production server URL is configured in this repository. If `API_BASE_URL` is empty, the portals state that sign-in is unavailable and local training remains usable.
+No production API URL is configured in this repository. If `API_BASE_URL` is empty or invalid, the direct login remains visible and gives a brief sign-in unavailable message after a sign-in attempt. The developer-only simulator can be included in a debug build with `--dart-define=ENABLE_TRAINING_WORKSPACE=true`.
 
 ## Local API with SQLite
 
@@ -39,7 +40,7 @@ Set a fresh `JWT_SECRET` of at least 32 characters in `.env`. Keep `ENVIRONMENT=
 
 ```sh
 alembic upgrade head
-python -m app.provision_admin --email admin@example.org --name 'Operations Admin'
+python -m app.provision_admin --email admin@example.org --display-name 'Operations Admin'
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -83,7 +84,8 @@ cd "$build_dir"
 flutter pub get
 flutter analyze
 flutter test
-flutter build apk --release --dart-define=API_BASE_URL="${API_BASE_URL:-}"
+API_BASE_URL="${API_BASE_URL:?Set a real HTTPS API_BASE_URL}"
+sh scripts/build_android_release.sh
 cp build/app/outputs/flutter-apk/app-release.apk \
   "$project_dir/release/emergency-coordination-system-demo.apk"
 shasum -a 256 "$project_dir/release/emergency-coordination-system-demo.apk"

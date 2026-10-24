@@ -1,6 +1,8 @@
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from pydantic import Field
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,6 +32,39 @@ class Settings(BaseSettings):
     recommendation_workload_weight: int = Field(default=20, ge=0, le=100)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def validate_production(self):
+        if self.environment.lower() != "production":
+            return self
+        if not self.database_url.startswith("postgresql+psycopg://"):
+            raise ValueError("Production requires a durable PostgreSQL DATABASE_URL")
+        origins = self.cors_origin_list
+        if not origins or any(not origin.startswith("https://") for origin in origins):
+            raise ValueError("Production CORS_ORIGINS must list HTTPS dashboard origins")
+        if any(
+            "*" in origin
+            or urlsplit(origin).path not in ("", "/")
+            or urlsplit(origin).query
+            or urlsplit(origin).fragment
+            or not urlsplit(origin).hostname
+            or "example" in urlsplit(origin).hostname.split(".")
+            or urlsplit(origin).hostname.endswith((".test", ".invalid", ".localhost"))
+            for origin in origins
+        ):
+            raise ValueError("Production CORS_ORIGINS cannot contain wildcard or placeholder origins")
+        public_app = urlsplit(self.public_app_url)
+        if (
+            public_app.scheme != "https"
+            or not public_app.hostname
+            or public_app.username
+            or public_app.password
+            or public_app.path not in ("", "/")
+            or public_app.query
+            or public_app.fragment
+        ):
+            raise ValueError("Production PUBLIC_APP_URL must be a real HTTPS origin")
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -1,6 +1,6 @@
 # Emergency Coordination System
 
-A Flutter and Dart Android app with unified role-routed sign-in for Users and Responders, plus a responsive browser administration dashboard for Super Admins and permission-scoped Co-Admins. The clients share one FastAPI service for accounts, incidents, assignments, resources, status history, and audit records. The original isolated local training workspace remains available. This repository does not include a hosted service or agency integration.
+A Flutter and Dart Android app with unified role-routed sign-in for Users and Responders, plus a responsive browser administration dashboard for Super Admins and permission-scoped Co-Admins. The clients share one FastAPI service for accounts, incidents, assignments, resources, status history, and audit records. The original isolated local training workspace remains available only through an explicit debug-build option. This repository does not include a hosted service or agency integration.
 
 > **Development platform only. Do not use this app to report or coordinate a real emergency.** A configured instance can capture and share device location with its coordination backend, but it does not contact emergency services or dispatch an ambulance, fire service, or police. Priority is a prototype heuristic, not a validated triage policy. For a real emergency, use the emergency number and procedures applicable to your location.
 
@@ -70,11 +70,11 @@ The checked-in APK was built before the current source follow-up and does not in
 
 ## First launch
 
-On a first launch, the app presents three short onboarding slides before its sign-in entry screen. Completion is stored on the device and is not repeated; a valid remembered server session is checked first and resumes directly to the account's authorized portal. Users and Responders are routed from the server-verified account role. Administrative accounts are directed to the browser dashboard and receive no mobile admin tools. New public registrations can create only user accounts. The first Super Admin is provisioned with the backend CLI. **Open isolated training workspace** enters the original local-only simulator, whose sample records are stored separately on that device and are never imported into the shared database.
+On a fresh install, the app presents three onboarding slides and then opens the login form directly. Later launches validate a Remember Me session first; if none exists or it is invalid, the login form opens directly. The app does not show an intermediate role portal. Users and Responders are routed from the server-verified account role. Administrative accounts are directed to a dashboard-only message in the mobile app. New public registrations can create only user accounts. The first Super Admin is provisioned with the backend CLI.
 
 The supplied official logo is a red location pin containing a green coordination cross. The original vector is [`assets/brand/official-logo.svg`](assets/brand/official-logo.svg); Flutter renders this SVG directly. Proportion-preserving derivatives are used for Android adaptive, legacy-density, themed monochrome, splash, and PWA icons.
 
-The isolated training workspace has five tabs in the bottom navigation:
+The isolated training workspace has five tabs in the bottom navigation. It appears only when a debug build is launched with `--dart-define=ENABLE_TRAINING_WORKSPACE=true`; it is not part of normal sign-in and cannot be enabled in a release build.
 
 | Tab | What it shows |
 |---|---|
@@ -103,24 +103,31 @@ To run a local backend, follow [backend/README.md](backend/README.md): create a 
 
 For a clearly synthetic, repeatable local demonstration dataset, follow [docs/DEMO_ACCOUNTS.md](docs/DEMO_ACCOUNTS.md). The opt-in seed command is restricted to development SQLite and creates 50 responder profiles plus role-based demo accounts and real assignment rows. Passwords are generated and shown only at first creation.
 
-The mobile client compiles its API host into the app. For local USB-device development, use `adb reverse tcp:8000 tcp:8000` and run Flutter with `--dart-define=API_BASE_URL=http://127.0.0.1:8000`; debug builds permit this loopback HTTP only. Release Android builds reject cleartext traffic and require an HTTPS endpoint:
+The mobile client compiles its public API origin into the app. For local USB-device development, use `adb reverse tcp:8000 tcp:8000` and run Flutter with `--dart-define=API_BASE_URL=http://127.0.0.1:8000`; debug builds permit this loopback HTTP only. Release Android builds reject cleartext traffic and require a real HTTPS endpoint. The client validates the URL and refuses empty, malformed, insecure, or obvious placeholder configuration. No API origin is configured in this repository, so the login stays available but server authentication cannot succeed until an operator configures the real backend URL.
 
 ```sh
-flutter build apk --release --dart-define=API_BASE_URL=https://your-deployed-api.example
+# Set API_BASE_URL to the actual deployed HTTPS origin first.
+sh scripts/build_android_release.sh
 ```
 
-If no API host is supplied, sign-in explains that it is not configured. The app still offers the isolated training workspace. The sign-in screen has an unchecked **Remember me on this device** option. When selected, the app stores a rotating refresh credential in Android secure storage, validates the server identity and role at startup, and restores the matching portal. Access tokens last 30 minutes; the remembered server session lasts up to 30 days by default, after which the user signs in again. Without the option, the token stays in memory and reopening the app requires sign-in. Clients refresh backend data every 12 seconds and show errors when they cannot synchronize.
+Remember Me is unchecked by default. When selected, the app stores a rotating refresh credential in Android secure storage, validates the server identity and role at startup, and restores the matching workspace. Access tokens last 30 minutes; remembered sessions last up to 30 days by default. Without Remember Me, the token stays in memory and reopening the app requires sign-in. Clients refresh backend data every 12 seconds and show errors when they cannot synchronize. The separate local training simulator is available only in debug builds compiled with `--dart-define=ENABLE_TRAINING_WORKSPACE=true`; it is not shown in the ordinary login flow or production builds.
 
 ### Initial account setup
 
-1. A server operator applies database migrations and runs `python -m app.provision_admin --email ... --name ...`. The password is entered twice at a hidden terminal prompt; the first active admin becomes Super Admin. There is no built-in default administrator.
+1. A server operator applies database migrations, sets `ADMIN_EMAIL` to the administrator's actual email, then runs:
+
+   ```sh
+   python -m app.provision_admin --email "$ADMIN_EMAIL" --display-name 'Operations Admin'
+   ```
+
+   The password is entered twice at a hidden terminal prompt. This one-time process creates the first Super Admin and refuses to run again once one exists. There is no built-in default administrator.
 2. The Super Admin opens the browser dashboard, creates Co-Admins with selected permissions, and invites responders with capabilities such as `medical`, `fire`, `rescue`, `security`, or `other`. Responders set their password through the one-time email activation link.
 3. People may register as Users from the mobile sign-in screen. Public registration cannot create an admin or responder.
 4. Use separate accounts and sessions to test each role. The mobile client does not ask people to choose a role; the server makes every authorization decision.
 
 ## Use the administration dashboard
 
-Host `web/admin/` on a static server, add that site's origin to backend `CORS_ORIGINS`, and sign in using the API URL plus the Super Admin or Co-Admin account. The overview, incident queue, responder list, user list, resource inventory, reports, and audit history load current API data. Co-Admins see only views permitted by their account, and the API rejects unauthorized requests even if a client control is bypassed.
+Host the `web/` directory on a static server, add that site's origin to backend `CORS_ORIGINS`, configure `ECS_API_BASE_URL` for the static build (or enter the service URL on the local development login page), and open `/admin/`. The overview, incident queue, responder list, user list, resource inventory, reports, and audit history load current API data. Co-Admins see only views permitted by their account, and the API rejects unauthorized requests even if a client control is bypassed. See [production hosting readiness](docs/operations/hosting.md).
 
 The Super Admin creates Co-Admins and grants a small set of permissions. Responder creation sends a one-time invitation link; in development without SMTP the dashboard displays the local activation link, while production requires a working SMTP configuration. Incident assignment remains a human decision and the API validates responder compatibility, availability, and resource capacity. More dashboard setup detail is in [backend/README.md](backend/README.md).
 
@@ -148,7 +155,7 @@ Incident submission persists first and runs the separate analysis task afterward
 
 ## Use the isolated training workspace
 
-Open **Isolated training workspace** from the mobile sign-in screen. The existing coordinator and responder demonstration workflows below continue to use a device-local JSON file, seeded sample records, simulated coordinates, and a role selector that is not authentication. Data entered here never syncs to the backend or transfers to another device.
+For a local debug build, pass `--dart-define=ENABLE_TRAINING_WORKSPACE=true` to expose the separate developer training entry on the login screen. The coordinator and responder demonstration workflows below use a device-local JSON file, seeded sample records, simulated coordinates, and a role selector that is not authentication. Data entered here never syncs to the backend or transfers to another device.
 
 ## Use the coordinator console
 
@@ -305,7 +312,7 @@ Choose the Android device ID shown by `flutter devices` and start the debug app:
 flutter run -d <android-device-id>
 ```
 
-To use a local API from the connected phone, start Uvicorn on port 8000, run `adb reverse tcp:8000 tcp:8000`, then start Flutter with `--dart-define=API_BASE_URL=http://127.0.0.1:8000`. For a deployed service, pass its HTTPS base URL at build/run time. The portal login pages explain when the URL is missing.
+To use a local API from the connected phone, start Uvicorn on port 8000, run `adb reverse tcp:8000 tcp:8000`, then start Flutter with `--dart-define=API_BASE_URL=http://127.0.0.1:8000`. For a deployed service, pass its real HTTPS base URL at build/run time. If configuration is missing, the direct login screen stays usable and reports sign-in unavailability only when sign-in is attempted.
 
 To stop the running debug session, press `q` in the terminal where `flutter run` is active, or press `Ctrl+C`.
 
@@ -344,8 +351,8 @@ flutter pub get
 flutter analyze
 flutter test
 # Set API_BASE_URL to an HTTPS deployment URL for authenticated portals.
-API_BASE_URL="${API_BASE_URL:-}"
-flutter build apk --release --dart-define=API_BASE_URL="$API_BASE_URL"
+API_BASE_URL="${API_BASE_URL:?Set a real HTTPS API_BASE_URL}"
+sh scripts/build_android_release.sh
 cp build/app/outputs/flutter-apk/app-release.apk \
   "$project_dir/release/emergency-coordination-system-demo.apk"
 ```
@@ -356,7 +363,7 @@ The APK output is `build/app/outputs/flutter-apk/app-release.apk` inside the sta
 shasum -a 256 "$project_dir/release/emergency-coordination-system-demo.apk"
 ```
 
-The release variant signs with the generated debug key. It is suitable for local development/demo only. Use an HTTPS API URL to enable server-backed portals in a build; leaving it blank disables authenticated API calls but keeps the isolated training workspace available. A distributable production release requires a protected signing key, a deployed and secured backend, security/privacy review, and operational validation.
+The release variant signs with the generated debug key. It is suitable for local development/demo only. A release build requires a real HTTPS API URL; production distribution also requires protected signing, a deployed and secured backend, security/privacy review, and operational validation. The local simulator is development-only and excluded from release builds.
 
 ## Troubleshooting
 

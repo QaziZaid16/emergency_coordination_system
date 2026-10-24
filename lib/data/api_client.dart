@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
+import 'api_configuration.dart';
+
 class ApiException implements Exception {
   const ApiException(this.message, {this.statusCode});
   final String message;
@@ -52,13 +54,22 @@ class SecureApiSessionStorage implements ApiSessionStorage {
 
 class ApiClient {
   ApiClient({String? baseUrl, http.Client? client, ApiSessionStorage? storage})
-    : baseUrl = (baseUrl ?? const String.fromEnvironment('API_BASE_URL'))
-          .replaceAll(RegExp(r'/$'), ''),
+    : configuration = ApiConfiguration(
+        baseUrl ?? const String.fromEnvironment('API_BASE_URL'),
+      ),
       _http = client ?? http.Client(),
       _storage =
-          storage ?? const SecureApiSessionStorage(FlutterSecureStorage());
+          storage ?? const SecureApiSessionStorage(FlutterSecureStorage()) {
+    assert(() {
+      if (!configuration.isValid) {
+        debugPrint('API configuration: ${configuration.diagnostic}');
+      }
+      return true;
+    }());
+  }
 
-  final String baseUrl;
+  final ApiConfiguration configuration;
+  String get baseUrl => configuration.value;
   final http.Client _http;
   final ApiSessionStorage _storage;
   final sessionExpired = ValueNotifier<bool>(false);
@@ -67,8 +78,7 @@ class ApiClient {
   static const _legacySessionKey = 'coordination_api_session_v1';
   static const _onboardingKey = 'coordination_onboarding_complete_v1';
 
-  bool get configured =>
-      baseUrl.startsWith('https://') || baseUrl.startsWith('http://');
+  bool get configured => configuration.isValid;
 
   Future<bool> hasCompletedOnboarding() async =>
       await _storage.read(_onboardingKey) == 'true';
@@ -418,7 +428,7 @@ class ApiClient {
   }) async {
     if (!configured) {
       throw const ApiException(
-        'The shared service URL is not configured. Build with --dart-define=API_BASE_URL=https://your-api-host.',
+        'Sign-in is temporarily unavailable. Please contact your service administrator.',
       );
     }
     if (session != null && path != '/auth/refresh' && path != '/auth/me') {

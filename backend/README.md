@@ -22,7 +22,7 @@ Create/update the local schema and provision the first administrator through the
 
 ```sh
 alembic upgrade head
-python -m app.provision_admin --email admin@example.org --name 'Operations Admin'
+python -m app.provision_admin --email admin@example.org --display-name 'Operations Admin'
 ```
 
 Run the service:
@@ -31,7 +31,7 @@ Run the service:
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-The OpenAPI interface is at `http://127.0.0.1:8000/docs`; liveness and database readiness are `/health/live` and `/health/ready`. Public user registration creates only the `user` role. The first provisioned administrator is a `super_admin`; subsequent provisioning creates restricted Co-Admins. Host the complete `web/` directory as one static site: open `/admin/index.html`, and serve `/activate.html` for invitation links. The dashboard uses this same API/database. Configure its Service URL field and include the site's origin in `CORS_ORIGINS`.
+The OpenAPI interface is at `http://127.0.0.1:8000/docs`; liveness and database readiness are `/health/live` and `/health/ready`. Public user registration creates only the `user` role. Host the complete `web/` directory as one static site: open `/admin/`, and serve `/activate.html` for invitation links. The dashboard uses this same API/database. Configure `ECS_API_BASE_URL` for the hosted static build, or enter a local development URL at sign-in; include the site's origin in `CORS_ORIGINS`.
 
 To add a repeatable local demo dataset, run `python -m app.seed_demo --confirm-demo-seed` while `ENVIRONMENT=development` and `DATABASE_URL` points to SQLite. The command refuses other environments and database engines, creates 50 synthetic responders and ten assigned sample incidents, and is safe to repeat. First-run generated demo passwords are printed once; see [`docs/DEMO_ACCOUNTS.md`](../docs/DEMO_ACCOUNTS.md). Never seed production data.
 
@@ -39,7 +39,7 @@ To add a repeatable local demo dataset, run `python -m app.seed_demo --confirm-d
 
 Run `alembic upgrade head` after updating. Only a Super Admin can create Co-Admins or change their explicit permissions. The API checks each permission on every request, so permission revocation also applies to active sessions. A Co-Admin starts with no permissions unless the Super Admin grants them. The dashboard supports live incident/responder/resource views, assignment, invitation, audit review, and Co-Admin permission editing.
 
-The permissions migration promotes the oldest active legacy `admin` account to `super_admin` so an existing installation retains one usable root account; other legacy admins receive no Co-Admin permissions until a Super Admin grants them.
+The permissions migration promotes the oldest active legacy `admin` account to `super_admin` so an existing installation retains one usable root account; other legacy admins receive no Co-Admin permissions until a Super Admin grants them. The one-time bootstrap CLI creates the initial Super Admin only after migrations; it does not create tables or print the password. Production configuration requires PostgreSQL and HTTPS dashboard/activation origins.
 
 Responder onboarding creates an inactive responder and a hashed, single-use token valid for 24 hours. Invitation creation/resend is limited to five attempts per administrator per hour in this single-process development service. Set `PUBLIC_APP_URL` to the deployed client origin. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, and `SMTP_FROM` to deliver invitation email. In development only, when SMTP is absent, the API returns an activation URL to the authenticated administrator; production requires HTTPS and treats missing or failed email delivery as an error without reporting the invite as sent. Serve `web/activate.html` at the configured public app URL. Passwords are established by the responder during activation. Use a shared gateway or datastore rate limiter, account recovery flow, and MFA before public production deployment.
 
@@ -74,20 +74,21 @@ flutter run -d <device-serial> --dart-define=API_BASE_URL=http://127.0.0.1:8000
 The manifest permits cleartext HTTP only in Android debug builds to support this loopback development setup. Release builds explicitly disallow cleartext and must use a real HTTPS API endpoint:
 
 ```sh
-flutter build apk --release --dart-define=API_BASE_URL=https://api.example.org
+# Set API_BASE_URL to the actual deployed HTTPS origin first.
+sh scripts/build_android_release.sh
 ```
 
-No API URL is hardcoded into the repository. If it is omitted, the app still opens the local Training Workspace; the three authenticated portals show that shared service configuration is missing and do not pretend to log in.
+No API URL is hardcoded into the mobile application. If it is omitted, the app opens its direct login form and explains sign-in unavailability only after a sign-in attempt. API URL validation rejects malformed URLs, placeholders, non-HTTPS release URLs, and non-loopback debug HTTP. The isolated training workspace appears only in a debug build that explicitly sets `ENABLE_TRAINING_WORKSPACE=true`.
 
 ## PostgreSQL with Compose
 
-Docker Compose is provided for a local PostgreSQL 17 development service. Docker is not bundled with this repository. Copy `.env.example` to `.env`, generate unique `JWT_SECRET` and `POSTGRES_PASSWORD` values, and set `ENVIRONMENT=production` to exercise the deployment code path locally. The compose API port binds to `127.0.0.1` only.
+Docker Compose is provided for a local PostgreSQL 17 development service. Docker is not bundled with this repository. Copy `.env.example` to `.env`, generate unique `JWT_SECRET` and `POSTGRES_PASSWORD` values, and keep `ENVIRONMENT=development`. Production settings require real HTTPS origins and are validated separately in the automated suite. The compose API port binds to `127.0.0.1` only.
 
 ```sh
 docker compose up -d db
 docker compose build api
 docker compose run --rm api alembic upgrade head
-docker compose run --rm api python -m app.provision_admin --email admin@example.org --name 'Operations Admin'
+docker compose run --rm -it api python -m app.provision_admin --email admin@example.org --display-name 'Operations Admin'
 docker compose up -d api
 ```
 
