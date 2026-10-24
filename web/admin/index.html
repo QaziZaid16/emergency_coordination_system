@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#f4f6f9">
+  <meta name="theme-color" content="#efede7">
   <meta name="description" content="Emergency Coordination operations administration">
   <title>Emergency Coordination · Operations</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -35,6 +35,7 @@
         <button id="menu-toggle" class="icon-button" type="button" aria-label="Open navigation" aria-expanded="false">☰</button>
       </div>
       <div class="brand"><img src="../assets/brand/official-logo.svg" alt=""><span>EMERGENCY COORDINATION<br><b>Operations center</b></span></div>
+      <div class="workspace-chip"><span class="workspace-icon" aria-hidden="true">EC</span><span>Emergency operations<small>Coordination workspace</small></span></div>
       <nav aria-label="Operations pages">
         <span class="nav-caption">Operations</span>
         <button class="nav active" data-view="overview"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="11" width="7" height="10" rx="1.5"/><rect x="3" y="14" width="8" height="7" rx="1.5"/></svg></span>Overview</button>
@@ -49,6 +50,11 @@
         <button class="nav" data-view="audit"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></span>Audit history</button>
         <button id="coadmins-nav" class="nav hidden" data-view="coadmins"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21v-2a7 7 0 0 1 14 0v2m3-13v6m-3-3h6"/></svg></span>Co-Admins</button>
       </nav>
+      <section id="ai-sidebar-summary" class="ai-sidebar-summary hidden" aria-label="Persisted AI analysis status">
+        <div class="ai-sidebar-heading"><span class="ai-mark" aria-hidden="true">✦</span><span><b>AI analysis</b><small>Decision support records</small></span></div>
+        <p><b id="ai-sidebar-ready">0</b> ready <span>·</span> <b id="ai-sidebar-failed">0</b> unavailable</p>
+        <button type="button" onclick="go('incidents')">Review incidents <span aria-hidden="true">›</span></button>
+      </section>
       <div class="sidebar-bottom">
         <span id="identity"></span>
         <button id="logout" class="quiet small" type="button">Sign out</button>
@@ -58,20 +64,19 @@
     <main class="content">
       <header class="topbar">
         <div class="topbar-start">
-          <div id="breadcrumb" class="eyebrow">EMERGENCY COORDINATION / OPERATIONS</div>
+          <div><div id="breadcrumb" class="eyebrow">EMERGENCY COORDINATION / OPERATIONS</div><h1 id="page-title">Operations overview</h1><p id="page-description" class="page-description">Current coordination activity from your service.</p></div>
         </div>
         <div class="topbar-tools">
           <label class="topbar-search" aria-label="Search incidents"><input id="global-search" type="search" placeholder="Search incidents…" autocomplete="off"></label>
+          <button id="notification-shortcut" class="notification-shortcut hidden" type="button" aria-label="Notifications" onclick="go('notifications')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9m-8 12h4"/></svg><span id="notification-count" class="notification-count hidden"></span></button>
+          <span id="last-updated" class="muted" aria-live="polite"></span><button id="refresh" class="secondary icon-button refresh-button" type="button" aria-label="Refresh current page">↻</button>
+          <button id="header-incident-action" class="primary header-incident-action" type="button" onclick="go('incidents')">Incident queue <span aria-hidden="true">→</span></button>
           <div class="profile-chip" aria-label="Signed in administrator">
             <span id="profile-avatar" class="profile-avatar" aria-hidden="true">AD</span>
             <span class="profile-copy"><span id="profile-name">Administrator</span><small id="profile-role">Admin</small></span>
           </div>
         </div>
       </header>
-      <section class="page-heading">
-        <div><p class="eyebrow">LIVE COORDINATION</p><h1 id="page-title">Operations overview</h1><p id="page-description" class="page-description">Current workload and operational activity from your coordination service.</p></div>
-        <div class="page-actions"><span id="last-updated" class="muted" aria-live="polite"></span><button id="refresh" class="secondary" type="button">↻ &nbsp; Refresh</button></div>
-      </section>
       <p id="notice" class="notice hidden" role="status" aria-live="polite"></p>
       <section id="view" aria-live="polite" aria-busy="false"></section>
     </main>

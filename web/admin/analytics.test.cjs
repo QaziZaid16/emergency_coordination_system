@@ -48,3 +48,25 @@ test('category chart maps actual totals to ordered, keyboard-drillable segment g
   assert.ok(segments[1].offset < 0);
   assert.equal(segments[0].dash + segments[1].dash, 2 * Math.PI * 40);
 });
+
+test('analysis summary counts persisted states and leaves missing records out', () => {
+  const rows = [
+    { analysis: { status: 'ready', last_error_type: null } },
+    { analysis: { status: 'pending' } },
+    { analysis: { status: 'processing' } },
+    { analysis: { status: 'unavailable', last_error_type: 'provider_timeout' } },
+    { analysis: null },
+  ];
+  assert.deepEqual(analytics.summarizeAnalysis(rows), { ready: 1, pending: 2, failed: 1 });
+});
+
+test('status pipeline counts only persisted incidents in the reporting window', () => {
+  const now = Date.parse('2026-10-24T12:00:00.000Z');
+  const rows = [
+    { status: 'Unassigned', created_at: '2026-10-24T10:00:00.000Z' },
+    { status: 'Assigned', created_at: '2026-10-20T10:00:00.000Z' },
+    { status: 'Resolved', created_at: '2026-10-01T10:00:00.000Z' },
+    { status: 'Invalid date', created_at: 'unknown' },
+  ];
+  assert.deepEqual(analytics.countRecentStatuses(rows, 7, now), { Unassigned: 1, Assigned: 1 });
+});

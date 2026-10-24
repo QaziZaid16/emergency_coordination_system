@@ -35,7 +35,20 @@
       return segment;
     });
   };
-  window.ECSAnalytics = { normalizeDailyCounts, filterIncidents, chartPoints, categorySegments };
+  const summarizeAnalysis = rows => {
+    const records = rows.filter(item => item.analysis);
+    return {
+      ready: records.filter(item => item.analysis.status === 'ready' && !item.analysis.last_error_type).length,
+      pending: records.filter(item => ['pending', 'processing'].includes(item.analysis.status)).length,
+      failed: records.filter(item => item.analysis.status === 'unavailable' || Boolean(item.analysis.last_error_type)).length,
+    };
+  };
+  const countRecentStatuses = (rows, days = 7, now = Date.now()) => rows.reduce((counts, item) => {
+    const created = new Date(item.created_at).getTime();
+    if (Number.isFinite(created) && created >= now - days * 86400000) counts[item.status] = (counts[item.status] || 0) + 1;
+    return counts;
+  }, {});
+  window.ECSAnalytics = { normalizeDailyCounts, filterIncidents, chartPoints, categorySegments, summarizeAnalysis, countRecentStatuses };
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
   const activeIncident = item => !['Resolved', 'Cancelled'].includes(item.status);
@@ -49,6 +62,43 @@
     return `<div class="trend-chart"><svg viewBox="0 0 640 180" role="img" aria-label="${esc(label)}. ${series.map(point => `${point.date}: ${point.count}`).join('; ')}" preserveAspectRatio="none"><title>${esc(label)}</title><defs><linearGradient id="trend-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#2878d0" stop-opacity=".22"/><stop offset="1" stop-color="#2878d0" stop-opacity="0"/></linearGradient></defs><path d="M${area.replaceAll(' ', ' L')} Z" fill="url(#trend-fill)"/><path d="M${points.replaceAll(' ', ' L')}" fill="none" stroke="#2878d0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${coords.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="2.8" fill="#fff" stroke="#2878d0" stroke-width="2"/>`).join('')}</svg><div class="chart-labels">${labels.map(point => `<span>${new Date(`${point.date}T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })}</span>`).join('')}</div></div>`;
   };
   const categoryRows = counts => Object.entries(counts || {}).filter(([, value]) => Number(value) > 0).sort((a, b) => b[1] - a[1]);
+  const workloadRows = (assignments, responders) => Object.entries(assignments || {})
+    .map(([id, count]) => ({ id, count: Number(count) || 0, name: responders.find(item => item.id === id)?.display_name || 'Responder record' }))
+    .filter(item => item.count > 0).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)).slice(0, 5);
+  const workloadList = rows => {
+    if (!rows.length) return '<p class="chart-empty">No assignment records in this period.</p>';
+    const max = Math.max(...rows.map(item => item.count));
+    return `<div class="workload-list">${rows.map(item => `<div class="workload-row"><span>${esc(item.name)}</span><i><b style="width:${100 * item.count / max}%"></b></i><strong>${item.count}</strong></div>`).join('')}</div>`;
+  };
+  const metricAction = (label, value, hint, action, accent = '') => action
+    ? `<button type="button" class="metric metric-action ${accent}" onclick="${action}"><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(hint)}</small><i aria-hidden="true">→</i></button>`
+    : `<div class="metric metric-action ${accent}"><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(hint)}</small></div>`;
+  const incidentPipeline = counts => {
+    const stages = [
+      ['Unassigned', 'Awaiting assignment', 'stage-attention'],
+      ['Assigned', 'Assigned', 'stage-assigned'],
+      ['Accepted', 'Accepted', 'stage-progress'],
+      ['En Route', 'En route', 'stage-progress'],
+      ['On Scene', 'On scene', 'stage-progress'],
+      ['Resolved', 'Resolved', 'stage-complete'],
+      ['Cancelled', 'Cancelled', 'stage-neutral'],
+    ];
+    const values = stages.map(([key]) => Number(counts?.[key]) || 0);
+    const max = Math.max(1, ...values);
+    return `<div class="lifecycle-stages">${stages.map(([key, label, tone], index) => `<button type="button" class="lifecycle-stage ${tone}" aria-label="Filter incidents with status ${esc(key)}: ${values[index]}" title="${values[index]} incidents with status ${esc(key)}" onclick="drillStatus('${key}')"><span class="lifecycle-label">${esc(label)}</span><i class="lifecycle-track" aria-hidden="true"><em style="width:${100 * values[index] / max}%"></em></i><b>${values[index]}</b></button>`).join('')}</div>`;
+  };
+  const compactIncidentList = rows => rows.length ? `<div class="compact-incident-list">${rows.map(item => `<article class="compact-incident"><button type="button" class="compact-incident-main" onclick="openIncident('${esc(item.id)}')"><span class="compact-incident-top"><b>${esc(item.reference)}</b>${priority(item)}<span class="compact-status">${esc(item.status)}</span></span><span class="compact-incident-category">${esc(item.emergency_type)}${item.severity ? ` · Severity ${esc(item.severity)}` : ''}</span><small>${item.responder_name ? `Responder: ${esc(item.responder_name)}` : 'Awaiting responder'} · ${new Date(item.created_at).toLocaleString()}</small></button>${allowed('assign_responders') && activeIncident(item) ? `<button type="button" class="compact-assign" onclick="assign('${esc(item.id)}',${Boolean(item.responder_id)})">${item.responder_id ? 'Reassign' : 'Assign'}</button>` : ''}</article>`).join('')}</div>` : '<p class="chart-empty">No active incidents.</p>';
+  const updateNotificationBadge = rowsOrCount => {
+    const button = document.querySelector('#notification-shortcut');
+    const badge = document.querySelector('#notification-count');
+    if (!button || !badge) return;
+    const unread = Array.isArray(rowsOrCount) ? rowsOrCount.filter(item => !item.read).length : Math.max(0, Number(rowsOrCount) || 0);
+    button.classList.remove('hidden');
+    button.setAttribute('aria-label', `Notifications, ${unread} unread`);
+    badge.textContent = unread > 99 ? '99+' : String(unread);
+    badge.classList.toggle('hidden', unread === 0);
+  };
+  window.updateNotificationBadge = updateNotificationBadge;
   const categoryList = (rows, total) => {
     if (!rows.length) return '<p class="chart-empty">No category data for this period.</p>';
     const segments = categorySegments(rows, total);
@@ -72,36 +122,51 @@
 
   window.overview = async function () {
     const permissions = typeof allowed === 'function' ? allowed : () => false;
-    const requests = [api('/admin/dashboard'), api('/incidents'), api('/admin/responders'), api('/admin/analytics?days=7')];
+    const canViewIncidents = permissions('view_incidents');
+    const canViewReports = permissions('view_reports');
+    const requests = [api('/admin/dashboard'), canViewIncidents ? api('/incidents') : Promise.resolve([]), api('/admin/responders'), canViewReports ? api('/admin/analytics?days=7') : Promise.resolve(null), api('/notifications')];
     requests.push(permissions('view_audit_logs') ? api('/admin/audit?limit=6') : Promise.resolve([]));
-    const [dashboard, rows, responderRows, analytics, audit] = await Promise.all(requests);
+    const [dashboard, rows, responderRows, reportData, notifications, audit] = await Promise.all(requests);
+    const analytics = reportData || { status_counts: {}, assignments_per_responder: {} };
+    updateNotificationBadge(notifications);
     incidents = rows; responders = responderRows;
     const active = rows.filter(activeIncident).sort((a, b) => {
       const rank = { Critical: 0, High: 1, Medium: 2, Low: 3 };
       return (rank[a.priority] ?? 4) - (rank[b.priority] ?? 4) || new Date(b.created_at) - new Date(a.created_at);
     });
     const critical = active.filter(item => ['Critical', 'High'].includes(item.priority));
-    const unassigned = active.filter(item => !item.responder_id);
+    const unassigned = active.filter(item => item.status === 'Unassigned' || !item.responder_id);
     const attention = [...new Map([...critical, ...unassigned].map(item => [item.id, item])).values()]
       .sort((a, b) => (a.responder_id ? 1 : 0) - (b.responder_id ? 1 : 0) || new Date(b.created_at) - new Date(a.created_at)).slice(0, 6);
-    const series = normalizeDailyCounts(analytics.daily_incident_counts, 7);
-    const categories = categoryRows(analytics.category_counts);
+    const analysisSummary = canViewIncidents ? summarizeAnalysis(rows) : null;
+    const sidebarSummary = document.querySelector('#ai-sidebar-summary');
+    if (sidebarSummary) sidebarSummary.classList.toggle('hidden', !canViewIncidents);
+    const sidebarReady = document.querySelector('#ai-sidebar-ready');
+    const sidebarFailed = document.querySelector('#ai-sidebar-failed');
+    if (sidebarReady && analysisSummary) sidebarReady.textContent = String(analysisSummary.ready);
+    if (sidebarFailed && analysisSummary) sidebarFailed.textContent = String(analysisSummary.failed);
+    const aiFailed = canViewIncidents ? rows.filter(item => item.analysis && (item.analysis.status === 'unavailable' || item.analysis.last_error_type)) : [];
+    const respondersByWorkload = canViewReports ? workloadRows(analytics.assignments_per_responder, responderRows) : null;
     const available = Number(dashboard.responders_available) || 0;
     const busy = Number(dashboard.responders_busy) || 0;
     const unavailable = Number(dashboard.responders_unavailable) || 0;
     const responderTotal = available + busy + unavailable;
-    view.innerHTML = `<div class="metrics metrics-primary">
-      ${metric('Active incidents', dashboard.active_incidents, '', `${critical.length} high or critical open`)}
-      ${metric('Unassigned', dashboard.unassigned, '', 'Open incidents awaiting a responder')}
-      ${metric('Responders available', available, '', 'Current service availability')}
-      ${metric('Open high priority', critical.length, '', 'High and critical incidents')}
+    const isDemo = String(account?.email || '').startsWith('demo.');
+    const headerAction = document.querySelector('#header-incident-action');
+    if (headerAction) headerAction.classList.toggle('hidden', !permissions('view_incidents'));
+    const statusCounts = reportData?.status_counts || (canViewIncidents ? countRecentStatuses(rows) : null);
+    const activePanel = `<section class="panel active-panel"><div class="panel-head"><div><p class="eyebrow">ACTIVE RESPONSE</p><h2>Priority incidents</h2><p class="panel-kicker">Open incidents ordered by priority and time reported</p></div>${canViewIncidents ? '<button class="quiet small" onclick="go(\'incidents\')">All incidents →</button>' : ''}</div>${canViewIncidents ? compactIncidentList(active.slice(0, 5)) : '<p class="chart-empty">Incident detail access is not included in your current role.</p>'}</section>`;
+    const aiPanel = `<section class="panel ai-panel"><div class="panel-head"><div><p class="eyebrow">DECISION SUPPORT</p><h2>AI automation activity</h2><p class="panel-kicker">Persisted analysis records · AI suggestions do not dispatch responders</p></div>${allowed('super_admin') ? '<button class="quiet small" onclick="go(\'automation\')">Policy →</button>' : ''}</div>${analysisSummary ? `<div class="ai-counts"><button type="button" onclick="go('incidents')"><b>${analysisSummary.ready}</b><span>Analysis ready</span></button><button type="button" onclick="go('incidents')"><b>${analysisSummary.pending}</b><span>Pending / processing</span></button><button type="button" class="${analysisSummary.failed ? 'ai-failure' : ''}" onclick="go('incidents')"><b>${analysisSummary.failed}</b><span>Unavailable</span></button></div>${aiFailed.length ? `<div class="ai-exceptions">${aiFailed.slice(0, 3).map(item => `<button type="button" onclick="openIncident('${esc(item.id)}')"><span><b>${esc(item.reference)}</b><small>${esc(item.analysis.last_error_type || item.analysis.validation_outcome || item.analysis.status)}</small></span><span aria-hidden="true">→</span></button>`).join('')}</div>` : '<p class="metric-footnote">No persisted analysis failures are currently recorded.</p>'}` : '<p class="chart-empty">Incident detail access is not included in your current role.</p>'}<div class="responder-mini"><div class="responder-mini-head"><b>Responder availability</b><span>${available} available · ${busy} busy</span></div><div class="availability-bar" role="img" aria-label="${available} available, ${busy} busy, ${unavailable} unavailable">${responderTotal ? `<i class="available-segment" style="width:${100 * available / responderTotal}%"></i><i class="busy-segment" style="width:${100 * busy / responderTotal}%"></i><i class="unavailable-segment" style="width:${100 * unavailable / responderTotal}%"></i>` : ''}</div>${canViewReports ? `${workloadList(respondersByWorkload)}<p class="metric-footnote">Workload counts are persisted assignment records from the last 7 days.</p>` : '<p class="metric-footnote">Assignment history is outside your current report permissions.</p>'}</div></section>`;
+    const attentionPanel = `<section class="panel attention-panel"><div class="panel-head"><div><p class="eyebrow">COORDINATOR REVIEW</p><h2>Attention required</h2><p class="panel-kicker">Priority and assignment exceptions from current records</p></div></div>${canViewIncidents ? `<div class="attention-summary"><button type="button" onclick="drillStatus('Unassigned')"><span><i class="attention-indicator yellow-indicator"></i><b>Unassigned</b></span><strong>${dashboard.unassigned}</strong><small>Open incidents with no responder assignment</small></button><button type="button" onclick="drillPriority('Critical')"><span><i class="attention-indicator red-indicator"></i><b>High priority</b></span><strong>${critical.length}</strong><small>Active high or critical incidents</small></button><button type="button" onclick="go('incidents')"><span><i class="attention-indicator ${aiFailed.length ? 'red-indicator' : 'neutral-indicator'}"></i><b>AI analysis unavailable</b></span><strong>${analysisSummary.failed}</strong><small>Persisted analysis records requiring review</small></button></div>${attention.length ? `<div class="attention-list">${attention.slice(0, 4).map(item => `<button type="button" class="attention-row" onclick="openIncident('${esc(item.id)}')"><span class="attention-priority priority-${String(item.priority || '').toLowerCase()}"></span><span class="attention-copy"><b>${esc(item.reference)} · ${esc(item.emergency_type)}</b><small>${esc(item.status)}${item.responder_name ? ` · ${esc(item.responder_name)}` : ' · Unassigned'}</small></span><span class="attention-tag">${esc(item.priority || 'Normal')}</span></button>`).join('')}</div>` : '<p class="metric-footnote">No open incident exceptions to show.</p>'}` : '<p class="chart-empty">Incident detail access is not included in your current role.</p>'}</section>`;
+    view.innerHTML = `${isDemo ? '<div class="demo-banner"><span class="demo-mark">DEMO</span><span>Local synthetic dataset · sample incidents and responder records are for demonstration only.</span></div>' : ''}<div class="metrics metrics-primary">
+      ${metricAction('Active incidents', dashboard.active_incidents, canViewIncidents ? `${critical.length} high or critical open` : 'Current service count', canViewIncidents ? "go('incidents')" : null, 'metric-yellow')}
+      ${metricAction('Unassigned', dashboard.unassigned, 'Open incidents awaiting a responder', canViewIncidents ? "drillStatus('Unassigned')" : null)}
+      ${metricAction('Responders available', available, 'Current service availability', "go('responders')")}
+      ${metricAction('Unread notifications', notifications.filter(item => !item.read).length, 'In-app records for this admin account', "go('notifications')")}
     </div>
+    ${statusCounts ? `<section class="panel lifecycle-panel"><div class="panel-head"><div><p class="eyebrow">INCIDENT LIFECYCLE</p><h2>Incident status pipeline</h2><p class="panel-kicker">Current status for incidents reported in the last 7 days · select a stage to filter</p></div>${canViewReports ? '<button class="quiet small" onclick="go(\'reports\')">Analytics →</button>' : ''}</div>${incidentPipeline(statusCounts)}</section>` : ''}
     <div class="dashboard-grid dashboard-redesign">
-      <section class="panel chart-panel trend-panel"><div class="panel-head"><div><p class="eyebrow">INCIDENT VOLUME</p><h2>Reports over time</h2><p class="panel-kicker">Daily incident submissions · last 7 days · UTC</p></div><button class="quiet small" onclick="go('reports')">View reports <span aria-hidden="true">→</span></button></div>${svgTrend(series, 'Daily incident submissions for the last 7 days')}</section>
-      <section class="panel chart-panel"><div class="panel-head"><div><p class="eyebrow">RESPONDER CAPACITY</p><h2>Current availability</h2><p class="panel-kicker">${responderTotal} responder records</p></div></div><div class="availability-bar" role="img" aria-label="${available} available, ${busy} busy, ${unavailable} unavailable">${responderTotal ? `<i class="available-segment" style="width:${100 * available / responderTotal}%"></i><i class="busy-segment" style="width:${100 * busy / responderTotal}%"></i><i class="unavailable-segment" style="width:${100 * unavailable / responderTotal}%"></i>` : ''}</div><div class="availability-legend"><span><i class="available-dot"></i>Available <b>${available}</b></span><span><i class="busy-dot"></i>Busy <b>${busy}</b></span><span><i class="unavailable-dot"></i>Unavailable <b>${unavailable}</b></span></div><p class="metric-footnote">Current snapshot from responder records. Availability does not guarantee incident eligibility.</p></section>
-      <section class="panel chart-panel"><div class="panel-head"><div><p class="eyebrow">INCIDENT MIX</p><h2>Categories</h2><p class="panel-kicker">Recorded incidents in selected service data</p></div><span class="panel-total">${rows.length}<small>total</small></span></div>${categoryList(categoryRows(analytics.category_counts), Object.values(analytics.category_counts || {}).reduce((sum, value) => sum + Number(value || 0), 0))}</section>
-      <section class="panel attention-panel"><div class="panel-head"><div><p class="eyebrow">NEEDS ATTENTION</p><h2>Review queue</h2><p class="panel-kicker">Open high-priority and unassigned incidents</p></div><button class="secondary small" onclick="go('incidents')">Open queue</button></div>${attention.length ? `<div class="attention-list">${attention.map(item => `<button type="button" class="attention-row" onclick="openIncident('${esc(item.id)}')"><span class="attention-priority priority-${String(item.priority || '').toLowerCase()}"></span><span class="attention-copy"><b>${esc(item.reference)} · ${esc(item.emergency_type)}</b><small>${esc(item.status)}${item.responder_name ? ` · ${esc(item.responder_name)}` : ' · Unassigned'} · ${new Date(item.created_at).toLocaleString()}</small></span><span class="attention-tag">${esc(item.priority || 'Normal')}</span></button>`).join('')}</div>` : '<p class="chart-empty">No open incidents meet these review conditions.</p>'}</section>
-      <section class="panel queue-panel"><div class="panel-head"><div><p class="eyebrow">ACTIVE WORK</p><h2>Incident queue</h2><p class="panel-kicker">Open reports sorted by priority and submission time</p></div><button class="quiet small" onclick="go('incidents')">All incidents →</button></div>${active.length ? tableIncidents(active.slice(0, 5)) : '<p class="chart-empty">No active incidents.</p>'}</section>
+      ${activePanel}${aiPanel}${attentionPanel}
       ${permissions('view_audit_logs') ? `<section class="panel activity-panel"><div class="panel-head"><div><p class="eyebrow">RECENT CHANGES</p><h2>Audit activity</h2><p class="panel-kicker">Latest records from the service audit log</p></div><button class="quiet small" onclick="go('audit')">Audit history →</button></div>${activityList(audit)}</section>` : ''}
     </div>`;
   };
