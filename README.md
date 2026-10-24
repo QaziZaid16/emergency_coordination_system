@@ -11,6 +11,8 @@ Flutter Android client, browser administration dashboard, and FastAPI service fo
 - `release/emergency-coordination-system-demo.apk` is an older, debug-key-signed demo build. It does not include all current source changes and is not suitable for store or production distribution.
 - Deployment preparation and remaining release gates are documented in [hosting](docs/operations/hosting.md). There is no verified live URL.
 
+The documented target is Vercel for the static site, Render for the FastAPI container, and Supabase PostgreSQL. Provider projects have not been created or connected, so no public URL, remote persistence, or cloud login is verified. The free tiers have inactivity, usage, and backup limitations; see the [deployment guide](docs/operations/hosting.md) before using them.
+
 ## Architecture
 
 ```mermaid
@@ -32,7 +34,7 @@ AI analysis is disabled by default. Admin Copilot and default incident analysis 
 | `web/` | Static administration and activation pages |
 | `backend/app/`, `backend/migrations/`, `backend/tests/` | FastAPI service, database models/migrations, and tests |
 | `backend/compose.yaml`, `backend/Dockerfile` | Local PostgreSQL Compose and API container setup |
-| `scripts/`, `vercel.json` | Static web configuration build, Android release wrapper, hosting config |
+| `scripts/`, `vercel.json`, `render.yaml` | Web/API hosting configuration and Android release wrapper |
 | `docs/` | Demo, operations, audit, and requirements documentation |
 | `.github/workflows/quality.yml` | Backend, Flutter, and JavaScript quality checks |
 
@@ -63,7 +65,7 @@ Set a private random `JWT_SECRET` of at least 32 characters in `backend/.env`; k
 
 ```sh
 alembic upgrade head
-python -m app.provision_admin --email admin@example.test --display-name 'Operations Admin'
+python -m app.provision_admin --email admin@example.org --display-name 'Operations Admin'
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -91,7 +93,7 @@ The client routes users and responders to the role stored by the server; adminis
 API_BASE_URL=https://<your-api-host> sh scripts/build_android_release.sh
 ```
 
-The checked-in release APK can be installed with `adb install -r release/emergency-coordination-system-demo.apk`, but it predates current source and is debug-key-signed. Release signing is not configured for production.
+The checked-in release APK can be installed with `adb install -r release/emergency-coordination-system-demo.apk`, but it predates current source and is debug-key-signed. The production release wrapper requires a protected release keystore and real HTTPS API URL; signing setup and GitHub artifact distribution are documented in [cloud deployment readiness](docs/operations/hosting.md).
 
 The separate local simulator is available only in debug mode when explicitly enabled:
 
@@ -139,6 +141,8 @@ node --check scripts/build_web_config.mjs
 
 Backend tests use SQLite; PostgreSQL integration/concurrency testing is still needed for deployment. See [test results and limitations](docs/audit/test-results.md) and the [requirements traceability matrix](docs/requirements/traceability-matrix.md).
 
+The `Quality checks` workflow also validates the static configuration build. After `API_BASE_URL` and the Android signing secrets are configured in GitHub, it builds a signed APK after CI passes on `main`; qualifying builds are retained as 30-day Actions artifacts. A `v*` tag publishes a deliberate GitHub Release. Vercel Git integration and Render's Git-connected Blueprint still require owner account setup.
+
 ## Further documentation
 
 - [Backend setup, administration, and API behavior](backend/README.md)
@@ -147,4 +151,5 @@ Backend tests use SQLite; PostgreSQL integration/concurrency testing is still ne
 - [Backup and recovery runbook](docs/operations/backup-and-recovery.md)
 - [Architecture audit](docs/audit/architecture.md)
 - [Known verification limits](docs/audit/test-results.md)
+- [CI/CD status](docs/CI_CD_AUDIT.md)
 - [Build from this Seagate/exFAT checkout](SETUP.md)

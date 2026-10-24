@@ -10,10 +10,10 @@ python -m app.seed_demo --confirm-demo-seed
 
 The first run creates:
 
-- 50 synthetic responders at `demo.responder01@example.test` through `demo.responder50@example.test`.
+- 50 synthetic responders at `demo.responder01@example.org` through `demo.responder50@example.org`.
 - One Super Admin, one view-only Co-Admin, and one normal user.
 - Ten actual assigned demo incidents and a `DEMO Medical Unit` inventory record.
-- Available, assigned, and off-duty responder states. Profiles contain no fake GPS fixes. Demo reports use `example.test` email and simulated text locations.
+- Available, assigned, and off-duty responder states. Profiles contain no fake GPS fixes. Demo reports use reserved `example.org` addresses and simulated text locations. These addresses pass the app's email syntax validation but are not real inboxes.
 
 Passwords for the three administrator/user roles and `demo.responder01` are randomly generated, hashed before persistence, and printed only when those accounts are first created. Save them in a local password manager immediately; they cannot be retrieved or printed again. The other responder passwords are random and intentionally not disclosed. The script never changes existing account passwords. If initial credentials are lost, use the project’s local development database reset procedure only after backing up data, or create another development account through the supported admin workflow.
 

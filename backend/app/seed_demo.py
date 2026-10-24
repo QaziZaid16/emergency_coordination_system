@@ -25,15 +25,27 @@ SERVICE_CAPABILITIES = (
     + [["other", "technical"] for _ in range(10)]
 )
 DEMO_ACCOUNTS = (
-    ("admin", "demo.admin@example.test", "Demo Super Admin"),
-    ("coadmin", "demo.coadmin@example.test", "Demo Co-Admin"),
-    ("user", "demo.user@example.test", "Demo Caller"),
+    ("admin", "demo.admin@example.org", "Demo Super Admin"),
+    ("coadmin", "demo.coadmin@example.org", "Demo Co-Admin"),
+    ("user", "demo.user@example.org", "Demo Caller"),
 )
 
 
 def new_password() -> str:
     # url-safe output is 32 characters and never written to the database.
     return secrets.token_urlsafe(24)
+
+
+def _demo_user(db, email: str) -> User | None:
+    account = db.scalar(select(User).where(User.email == email))
+    if account is None and email.endswith("@example.org"):
+        # Preserve logins created by older seeds while moving from .test,
+        # which the API's EmailStr login validation correctly rejects.
+        legacy_email = email.removesuffix("@example.org") + "@example.test"
+        account = db.scalar(select(User).where(User.email == legacy_email))
+        if account is not None:
+            account.email = email
+    return account
 
 
 def main() -> None:
@@ -57,7 +69,7 @@ def main() -> None:
     with SessionLocal.begin() as db:
         accounts: dict[str, User] = {}
         for key, email, display_name in DEMO_ACCOUNTS:
-            account = db.scalar(select(User).where(User.email == email))
+            account = _demo_user(db, email)
             if account is None:
                 password = new_password()
                 account = User(
@@ -75,8 +87,8 @@ def main() -> None:
 
         responder_users: list[User] = []
         for number in range(1, RESPONDERS + 1):
-            email = f"demo.responder{number:02d}@example.test"
-            account = db.scalar(select(User).where(User.email == email))
+            email = f"demo.responder{number:02d}@example.org"
+            account = _demo_user(db, email)
             if account is None:
                 password = new_password()
                 account = User(

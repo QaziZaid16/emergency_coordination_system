@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -49,3 +51,85 @@ jobs:
       - run: flutter test test/api_client_test.dart test/api_configuration_test.dart test/dispatch_rules_test.dart test/operations_store_test.dart test/widget_test.dart
       - run: node --check web/admin/app.js
       - run: node --check scripts/build_web_config.mjs
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate configured static-site build
+        env:
+          # Build-time format fixture only. Vercel uses the API_BASE_URL chosen
+          # in its own project settings when it performs a deployment.
+          ECS_API_BASE_URL: https://ecs-ci-api.onrender.com
+        run: |
+          node scripts/build_web_config.mjs --required
+          node --check web/admin/config.js
+          node --check web/admin/app.js
+
+  android-release:
+    needs: [backend, flutter, web]
+    if: >-
+      ((github.ref == 'refs/heads/main' &&
+        (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) ||
+       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))) &&
+      vars.API_BASE_URL != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.7'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Prepare protected release signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::Set the ANDROID_KEYSTORE_BASE64 repository secret before building release APKs."
+            exit 1
+          fi
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/ecs-release.jks"
+          chmod 600 "$RUNNER_TEMP/ecs-release.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/ecs-release.jks" >> "$GITHUB_ENV"
+      - name: Build signed release APK
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          CURRENT_VERSION_CODE=$(sed -n 's/^version:.*+\([0-9][0-9]*\)$/\1/p' pubspec.yaml)
+          BUILD_NUMBER=$((GITHUB_RUN_NUMBER + CURRENT_VERSION_CODE))
+          sh scripts/build_android_release.sh --build-number "$BUILD_NUMBER"
+          printf 'commit=%s\nversion_code=%s\napi_origin=%s\n' \
+            "$GITHUB_SHA" "$BUILD_NUMBER" "$(node -p 'new URL(process.env.API_BASE_URL).origin')" \
+            > build/app/outputs/flutter-apk/build-info.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emergency-coordination-android-${{ github.sha }}
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/build-info.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish tagged APK release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          build/app/outputs/flutter-apk/app-release.apk
+          build/app/outputs/flutter-apk/build-info.txt
+          --title "Emergency Coordination System $GITHUB_REF_NAME"
+          --generate-notes

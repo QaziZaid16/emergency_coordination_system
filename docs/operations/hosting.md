@@ -1,95 +1,154 @@
-# Production hosting preparation
+# Cloud deployment readiness
 
-## Current deployment state
+## Live deployment status
 
-This repository has not been deployed. There is no verified public API URL, dashboard URL, production database, domain, hosting account, or provisioned live administrator. The selected repository-side layout is a Vercel static build for the HTML/JavaScript dashboard and a Docker-capable backend host with managed PostgreSQL. `vercel.json` configures the static output and short routes; `backend/Dockerfile` listens on the host-provided `PORT`. Hosting credentials and external resources still need to be created by the operator.
+**Not deployed.** No Vercel, Render, or Supabase project is connected to this repository, no cloud API or dashboard URL has been issued, no remote database has been migrated, and no cloud login or persistence test has run. Do not treat the example hostnames below as live URLs.
 
-The frontend is plain HTML/CSS/JavaScript under `web/`, with no framework bundler. The backend is FastAPI with SQLAlchemy and Alembic. SQLite is supported for local development and tests. Production settings now require PostgreSQL, HTTPS dashboard CORS origins, and an HTTPS activation origin. Production startup does not create tables: migrations must run as a deliberate release step.
+The current repository already contains the static dashboard build (`vercel.json`), FastAPI Docker image (`backend/Dockerfile`), PostgreSQL migrations, health endpoints, and local/CI checks. This document and `render.yaml` prepare a no-purchase demonstration deployment. Provider account authorization and project creation remain owner actions.
 
-## Local development
+## Target layout
 
-Backend, from `backend/`:
+| Component | Target | Reason and boundary |
+|---|---|---|
+| Browser dashboard | Vercel Hobby static deployment, `main` branch | The HTML/CSS/JavaScript site is static and already has a Vercel build configuration. Git integration provides preview and production deployments. Hobby is for personal, non-commercial use. |
+| API | Render Free Docker web service | Uses the existing FastAPI image and `render.yaml`; HTTPS and the `onrender.com` subdomain are provided by Render. It sleeps when idle. |
+| Database | Supabase Free PostgreSQL | Persistent PostgreSQL rather than a container-local SQLite file. Use Supabase's IPv4 session pooler from Render. Free projects may pause after inactivity and have no managed backups. |
+| AI | Disabled (`AI_PROVIDER=none`) | No provider or key is selected. The deterministic backend baseline remains in use. |
+| Notifications | Existing persistent in-app records only | FCM, device tokens, email notifications, and delivery tracking are not configured. SMTP invitations need a separately configured mail provider. |
 
-```sh
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements-dev.txt
-cp .env.example .env
-# Set a random JWT_SECRET of at least 32 characters in .env.
-alembic upgrade head
-python -m app.provision_admin --email admin@example.test --display-name 'Local Super Admin'
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
+This is a prototype hosting arrangement, not production service assurance. Keep real emergency and sensitive location data out of it.
 
-The CLI prompts twice for a password and stores an Argon2 hash. It creates the first Super Admin only and refuses when a Super Admin already exists. To use the local dashboard, set its Service URL to `http://127.0.0.1:8000`, add the dashboard origin to `CORS_ORIGINS`, and open `web/admin/index.html`. The root README documents Android USB development and `adb reverse`.
+## Deployment checklist
 
-## Vercel static dashboard
+- [ ] Owner creates/authorizes free Vercel, Render, and Supabase accounts; keep every service on its $0 plan and do not add billing or paid add-ons. Whether an account signup flow asks for a card was not verified.
+- [ ] A Supabase Free project is created; the Session pooler connection string is stored only in Render's service settings.
+- [ ] The Vercel project is connected to this GitHub repository, with root directory `/`, production branch `main`, build command `node scripts/build_web_config.mjs --required`, and output directory `web`.
+- [ ] Vercel project variable `ECS_API_BASE_URL` contains the actual Render HTTPS origin. Do not use a placeholder.
+- [ ] Render creates the service from [`render.yaml`](../../render.yaml), with the actual Vercel origin in `CORS_ORIGINS` and `PUBLIC_APP_URL`.
+- [ ] The Render API passes `/health/live` and `/health/ready`; database connectivity and migrations are verified.
+- [ ] Vercel Deployment Checks are configured to wait for the GitHub Actions `Quality checks` workflow before production promotion.
+- [ ] A protected, owner-controlled Android signing key and repository API URL variable are configured before the signed APK job can run.
+- [ ] A synthetic end-to-end incident and restart/persistence check succeeds before sharing the demonstration.
 
-1. Import this repository into the Vercel project; use the repository root as the project root.
-2. Set the build-time environment variable `ECS_API_BASE_URL` to the real backend HTTPS origin, for example `https://api.<your-domain>` (replace the placeholder with the provisioned service origin).
-3. Use the checked-in build command `node scripts/build_web_config.mjs --required`; output directory is `web` as declared in `vercel.json`.
-4. Add the final dashboard origin, such as `https://<your-dashboard-domain>`, to the backend `CORS_ORIGINS` value.
-5. Open `https://<your-dashboard-domain>/admin/`. The generated client configuration contains only the public API origin, never credentials. It is intentionally not a secret.
+## Provider setup sequence
 
-The script rejects absent, non-HTTPS, malformed, or obvious placeholder API origins. Preview deployments must also be included in backend CORS if they are to call the service. Do not add database, JWT, SMTP, or other server secrets to Vercel frontend variables.
+### 1. Create the Supabase database
 
-### Demonstration-tier limits reviewed (2026-10-24)
+1. Create a Free Plan project in the owner's Supabase organization. Keep the database password in a password manager.
+2. Open **Connect** in the project and select **Session pooler**. Supabase identifies this shared pooler as IPv4 accessible, including on Free. Render's free service is not an IPv6-only network assumption.
+3. Store the returned hostname, port, database, username, and password in the private Render `DATABASE_URL` setting, using SQLAlchemy's `postgresql+psycopg://` driver URL and `?sslmode=require`. Percent-encode reserved characters in the password. Do not commit or paste this URL into an issue or chat.
+4. The Render startup command applies `alembic upgrade head` before starting Uvicorn. It retries a failing database connection a bounded number of times, then fails closed. It never runs the demo seed.
 
-The repository's Vercel static-site choice avoids running an application server for the dashboard; a live deploy still requires an owned project, API origin, and review of the selected Vercel plan limits. A possible backend alternative, Render Free, is unsuitable for durable emergency-style demonstration data: free web services sleep after 15 minutes without inbound traffic, restart takes about a minute, and local filesystem data is ephemeral. Render Free Postgres is capped at 1 GB, expires 30 days after creation, and has no backups. See [Render Free service limits](https://render.com/docs/free). A production or persistent academic demo must select an appropriate managed database and budget/backup policy rather than assume free tier means persistent or always available.
+Supabase currently lists two active Free projects, 500 MB database size per project, 5 GB egress, and no automatic backups. Free projects may be paused after about a week of low activity; a paused project can be restored for up to one year. Export backups regularly and keep them in an encrypted destination outside this repository. A manual PostgreSQL dump/restore runbook is in [backup and recovery](backup-and-recovery.md); no cloud backup or restore has been tested.
 
-For Android release builds, set `API_BASE_URL` to the same verified HTTPS API origin and run `sh scripts/build_android_release.sh`. That wrapper rejects empty or placeholder values before invoking Flutter. Android production signing is still not configured; the current Gradle release signing setup uses the debug key and is not distributable.
+Official references: [Supabase plans and quotas](https://supabase.com/pricing), [project pausing](https://supabase.com/docs/guides/platform/free-project-pausing), [PostgreSQL connection modes](https://supabase.com/docs/guides/database/connecting-to-postgres), and [backups](https://supabase.com/docs/guides/platform/backups).
 
-For local static preview, `ECS_API_BASE_URL` may be omitted and the dashboard keeps its manual service URL field:
+### 2. Create the Render API service
 
-```sh
-python3 -m http.server 8080 --directory web
-```
+1. Connect Render to the GitHub account that can access this repository.
+2. Choose **New → Blueprint** for the repository on `main`. Review `render.yaml`; it creates one Free Docker web service and no Render database or other paid resources.
+3. For `DATABASE_URL`, enter the protected Supabase Session pooler URL. Set `CORS_ORIGINS` and `PUBLIC_APP_URL` to the eventual HTTPS Vercel site origin (for example, the actual `https://<project>.vercel.app` shown by Vercel). If the Vercel URL is not known yet, use a valid temporary HTTPS origin, complete the initial deployment, and replace it before testing dashboard sign-in.
+4. Render generates `JWT_SECRET`. Keep the `ENVIRONMENT=production` and `AI_PROVIDER=none` values declared in the Blueprint.
+5. Once created, record the actual `https://<service>.onrender.com` URL from Render; do not guess the slug. The service uses `/health/ready` for its health check and auto-deploys from `main` only after connected GitHub checks pass.
 
-## Backend service and database
+Production migrations run at container start because Render Free does not provide pre-deploy commands. Keep schema changes backward-compatible with the currently running application and use expand/contract migrations. A failed migration prevents the API from starting; the app does not run `create_all` or seed data in production.
 
-Use a Docker-capable web-service host with a managed PostgreSQL database on a private network. Build from `backend/Dockerfile`; the container starts `uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Configure these backend environment variables in the host's secret/configuration store:
+### 3. Create the Vercel dashboard
 
-| Name | Required production value |
+1. Import this repository into the owner's personal Vercel Hobby account and select `/` as the project root. Keep the checked-in `vercel.json` build and output settings.
+2. Set `ECS_API_BASE_URL` to the actual Render HTTPS origin. It is a public endpoint, not a secret.
+3. Set `main` as the production branch and deploy. Vercel assigns the free `vercel.app` site URL. Add that exact origin to Render `CORS_ORIGINS` and `PUBLIC_APP_URL`, then redeploy the API.
+4. Reopen the dashboard and verify login and API-backed data. The direct path is `/admin/`; responder activation is `/activate`.
+5. In Vercel project settings, configure **Deployment Checks** to block production promotion until the repository's `Quality checks` workflow passes. Vercel can build a deployment before checks finish; the check prevents it becoming the production alias until selected checks pass. Preview deployments remain available for review.
+
+Vercel Hobby is free for personal, non-commercial use, includes GitHub integration and automatic preview/production deployments, and pauses usage-dependent features when quotas are exceeded. The owner must satisfy Vercel's Hobby account/commit-author rules. A custom domain is not required.
+
+Official references: [Vercel Hobby plan](https://vercel.com/docs/plans/hobby), [Git deployments](https://vercel.com/docs/git), [Deployment Checks](https://vercel.com/docs/deployment-checks).
+
+### 4. Configure GitHub Actions and Android signing
+
+`main` is the production branch. `.github/workflows/quality.yml` runs backend tests, Dart format/analyze and Flutter tests, and validates the static web configuration build on PRs and pushes. Render is configured to deploy after checks pass; Vercel production promotion requires the Deployment Checks setting above.
+
+The same workflow builds an Android APK after those checks on `main` when the repository variable `API_BASE_URL` is present. APKs are uploaded as a 30-day Actions artifact. A `v*` tag creates a GitHub Release with the APK and build metadata. Workflow manual dispatch is available from `main`.
+
+Set repository variable `API_BASE_URL` to the actual Render HTTPS origin. In **Repository → Settings → Secrets and variables → Actions**, add these four secrets:
+
+| Secret | Value |
 |---|---|
-| `ENVIRONMENT` | `production` |
-| `DATABASE_URL` | Managed PostgreSQL URL using SQLAlchemy's `postgresql+psycopg://` driver form |
-| `JWT_SECRET` | Random secret with at least 32 characters; generate in the host secret manager |
-| `CORS_ORIGINS` | Comma-separated exact HTTPS dashboard origins; no wildcard or path |
-| `PUBLIC_APP_URL` | HTTPS dashboard origin used to construct responder activation links |
-| `ACCESS_TOKEN_MINUTES` | Optional; defaults to 30 |
-| `REMEMBER_ME_DAYS` | Optional; defaults to 30, bounded 1–365 |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | Required to deliver responder invitations in production |
+| `ANDROID_KEYSTORE_BASE64` | Base64 encoding of the private Android release keystore |
+| `ANDROID_KEYSTORE_PASSWORD` | Keystore password |
+| `ANDROID_KEY_ALIAS` | Signing-key alias |
+| `ANDROID_KEY_PASSWORD` | Signing-key password |
 
-`AI_PROVIDER` defaults to `none`; no AI key is required. Do not configure optional AI processing without a separate privacy and cost decision. Hosted open-weight inference was not selected because no provider/model, key, or data-retention approval was available. Hugging Face currently documents $0.10 monthly Inference Provider credits for Free accounts, subject to change, then pay-as-you-go when additional credits are purchased; model weights do not make provider inference free. See [Hugging Face pricing](https://huggingface.co/docs/inference-providers/en/pricing). Database credentials, JWT secret, and SMTP credentials stay in the backend host's secret store and never enter Flutter, Vercel, browser assets, or Git.
+Do not commit the keystore, `key.properties`, or passwords. Generate a new key with `keytool` only if the owner accepts the app-signing migration described below, keep an encrypted offline backup, and upload secrets using the GitHub settings UI. This repository does not contain a production key. The workflow fails with a clear error if the secret or API variable is missing.
 
-Deployment sequence:
+On a machine with the Android JDK installed, this command prompts for the new keystore and key passwords instead of putting them in shell history:
 
-1. Provision managed PostgreSQL and configure `DATABASE_URL` for the API service.
-2. Configure the environment variables above and deploy the container.
-3. Run `alembic upgrade head` once for the release against the target database, using the same backend image and production environment. Do not run demo seeds or automatic `create_all` in production.
-4. Provision the first administrator from a one-off backend container/task after migration:
+```sh
+keytool -genkeypair -v -keystore ecs-upload.jks -alias ecs-upload \
+  -keyalg RSA -keysize 2048 -validity 10000
+```
 
-   ```sh
-   python -m app.provision_admin --email "$ADMIN_EMAIL" --display-name 'Operations Admin'
-   ```
+Base64-encode that file locally and enter the result in the GitHub `ANDROID_KEYSTORE_BASE64` secret field; enter its passwords and alias in the other listed secret fields. Never print or commit the encoded key.
 
-   Set `ADMIN_EMAIL` to the actual operator address before running this command. The password is entered interactively; it is never an argument, environment variable, or printed by the program. The CLI refuses a second bootstrap and exits if it cannot use a terminal without echo. If the host's task runner is noninteractive, attach a secure terminal rather than putting the password into shell history or logs.
-5. Configure `ECS_API_BASE_URL` in the Vercel project, build/deploy the dashboard, then set its final origin in backend `CORS_ORIGINS` and redeploy the API.
-6. Confirm `https://<api-domain>/health/live` returns `{"status":"ok"}` and `/health/ready` returns `{"status":"ready"}`. Readiness checks database connectivity, not admin login.
-7. Open `/admin/` and sign in with the bootstrap email and password entered in step 4. Verify the returned account role is `super_admin`; create Co-Admins from that dashboard with only required permissions.
+The currently installed APK on the demonstration phone is signed with a debug certificate. A new production keystore has a different signer and Android will reject it as an in-place update for that installed package. Do not uninstall or overwrite it automatically. Before distributing production-signed APKs, the owner must either authorize a one-time uninstall/reinstall (which removes local app data), or provide the existing signing identity. The default Android debug key is not suitable for public release distribution. The package ID remains `edu.cgc.university.emergency_coordination_system`.
 
-An administrator account has not been provisioned in a live environment and no live login test has been performed. A local integration test covers generated password hashing and successful API login in the in-memory test database.
+The version code for CI artifacts increases from the manifest version using the workflow run number. GitHub Actions artifacts expire after 30 days; tagged GitHub Releases are the longer-lived download option. APK installation is manual—this workflow does not update phones automatically.
 
-## Database, migrations, backups, and rollback
+### 5. Configure SMTP only if responder invitation email is required
 
-- The backend image includes Alembic migrations. Production lifespan deliberately does not call `Base.metadata.create_all`; run `alembic upgrade head` as an explicit release step.
-- Use managed PostgreSQL with persistent storage and a private service connection. Do not use the local SQLite file or container filesystem as production data storage.
-- Enable encrypted managed backups and point-in-time recovery according to the service's approved retention/RPO/RTO policy. This repository's [backup runbook](backup-and-recovery.md) describes a manual PostgreSQL logical backup and isolated restore drill; a recovery drill has not been performed here.
-- Before rollback, check migration compatibility. Application rollback does not automatically reverse schema changes; restore a tested database snapshot only under the service's incident procedure. Never run `alembic downgrade` or destructive seed/reset commands against production without an approved recovery plan.
-- Pin backend dependencies and run database integration/concurrency tests against the selected PostgreSQL service before real operational use. Existing automated backend tests use SQLite.
+The backend can send responder activation links through SMTP, but no provider is selected or configured. Render Free blocks outbound SMTP on ports 25, 465, and 587. Use a provider offering a permitted submission port (such as 2525 where supported) or an approved HTTPS mail API integration; do not add credentials until one is selected. In-app notification records do not send email or push messages.
 
-## Smoke checks and remaining release gates
+## Configuration and secret boundaries
 
-After deployment, verify the health endpoints, dashboard asset loading, CORS preflight, admin login, role-based dashboard visibility, invalid credentials, responder invitation delivery, and one synthetic incident lifecycle in a non-operational staging database. Verify the API rejects unauthorized Co-Admin actions. Do not use live emergency data for a smoke test.
+| Setting | Location | Secret? |
+|---|---|---|
+| `DATABASE_URL` | Render environment | Yes; includes the database password |
+| `JWT_SECRET` | Render environment, generated by Blueprint | Yes |
+| `CORS_ORIGINS`, `PUBLIC_APP_URL` | Render environment | No, but must match the actual Vercel origin |
+| `ECS_API_BASE_URL` | Vercel project build environment | No; public API URL |
+| `API_BASE_URL` | GitHub Actions repository variable | No; same public API URL for release APKs |
+| `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | GitHub Actions repository secrets | Yes |
+| `AI_PROVIDER` | Render environment | `none`; optional AI is not configured |
+| `SMTP_*` | Render environment | Not configured; outbound SMTP restrictions apply |
 
-This preparation does not constitute deployment or production approval. No hosting credentials, DNS changes, migrations, live admin account, production signing key, rate-limit gateway, monitoring, penetration review, PostgreSQL integration result, or tested backup restoration is present. Keep this system out of real emergency response until those gates and the privacy/operational review in the release-readiness report are complete.
+Never place database/JWT/SMTP/signing secrets in `ECS_API_BASE_URL`, `API_BASE_URL`, a Flutter `--dart-define`, web assets, workflow YAML, or Git.
+
+## Verification and persistence test
+
+After the owner has created and deployed all three provider projects:
+
+```sh
+curl -fsS https://<actual-render-service>.onrender.com/health/live
+curl -fsS https://<actual-render-service>.onrender.com/health/ready
+curl -fsSI https://<actual-vercel-project>.vercel.app/admin/
+```
+
+The expected API responses are `{"status":"ok"}` and `{"status":"ready"}`. Replace the bracketed values only with URLs displayed by the providers. Then, using only synthetic records in this academic demo:
+
+1. Provision the first Super Admin through a secure Render shell/one-off task or an approved secure database/API setup. Do not seed production or use a default password.
+2. Sign into the Vercel dashboard and a production-configured APK on a phone using the HTTPS API.
+3. Create a synthetic user incident; confirm it appears in the dashboard and API/database.
+4. Assign a synthetic responder, update its status from the responder client, and verify the user and admin views observe the change.
+5. Restart/redeploy the API and confirm the incident and status history remain in Supabase.
+6. Test invalid credentials, role denial, CORS preflight, and `/health/ready` during an unavailable database.
+
+None of these live tests have been run because the provider projects and credentials are absent. SQLite tests do not establish PostgreSQL concurrency or cloud persistence.
+
+## Cost and reliability limits checked 2026-10-24
+
+- **Vercel Hobby:** $0 for the documented personal/non-commercial use case; usage limits apply and deployments/features can pause at quotas. GitHub integration and TLS are provider-managed. [Plan limits](https://vercel.com/docs/plans/hobby).
+- **Render Free API:** sleeps after 15 minutes without inbound traffic and can take about a minute to wake. Free web services have ephemeral filesystems, can restart, do not support pre-deploy commands or SSH, and share 750 free instance hours per workspace/month. No payment method means over-quota services can be suspended rather than billed; adding a payment method can permit charges for some overages. SMTP ports 25/465/587 are blocked. [Render free limits](https://render.com/docs/free).
+- **Supabase Free database:** $0 at current published quotas, up to 500 MB database size/project and 5 GB egress; low-activity projects can pause after a week. Automatic backups and point-in-time recovery are not included on Free. Keep manual encrypted backups and do not promise indefinite free persistence. [Supabase pricing](https://supabase.com/pricing), [pausing](https://supabase.com/docs/guides/platform/free-project-pausing), [backups](https://supabase.com/docs/guides/platform/backups).
+- **GitHub Actions:** standard hosted runners are free for public repositories; private repositories have plan-specific minute and storage quotas. APK artifacts in this workflow are retained for 30 days. [Actions usage](https://docs.github.com/en/actions/concepts/billing-and-usage).
+- **AI and push notifications:** no provider is configured; no AI or push costs are currently incurred by this deployment design.
+
+These are provider limits reviewed from official docs on the date above; they can change. No provider account was available to verify its signup/card flow or project-specific quota. These free tiers are suitable only for a small, synthetic academic demo, not reliable emergency operations.
+
+## Rollback
+
+- **Vercel:** use the provider's previous deployment/rollback controls after checking which commit and API origin it contains.
+- **Render:** use one of the recent successful deploys or revert the repository commit; check database migration compatibility first. Do not assume rolling application code back reverses a migration.
+- **Supabase:** restore only from a verified export into an isolated database, validate it, and change the Render `DATABASE_URL` only after explicit operator approval. No automated backup, point-in-time recovery, or restore drill is included on Free.
+
+No rollback or backup recovery has been exercised against a live service.

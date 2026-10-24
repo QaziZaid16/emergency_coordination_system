@@ -23,11 +23,11 @@ flutter analyze
 flutter test
 ```
 
-For a release build, set `API_BASE_URL` to the real HTTPS API origin before invoking the repository wrapper:
+For a release build, set `API_BASE_URL` to the real HTTPS API origin and provide a protected release keystore using the required Android signing environment variables before invoking the wrapper. The Android release build is no longer debug-signed:
 
 ```sh
 API_BASE_URL="${API_BASE_URL:?Set a real HTTPS API_BASE_URL}" \
   sh scripts/build_android_release.sh
 ```
 
-The resulting APK stays in the staging directory at `build/app/outputs/flutter-apk/app-release.apk`. Inspect and verify it before copying it into the repository; the checked-in demo APK is a separate, older artifact. The Gradle release configuration currently uses a debug key, so the result is not production distributable. Production signing and a deployed API are not configured here.
+The resulting APK stays in the staging directory at `build/app/outputs/flutter-apk/app-release.apk`. Inspect and verify it before copying it into the repository; the checked-in demo APK is a separate, older artifact. See [cloud deployment readiness](docs/operations/hosting.md) for signing key setup and the existing installed app's signing migration constraint.
