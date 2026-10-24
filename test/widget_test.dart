@@ -63,6 +63,51 @@ void main() {
   });
 
   testWidgets(
+    'missing API does not turn remembered-session startup into an error',
+    (tester) async {
+      final storage = _TestSessionStorage()
+        ..values['coordination_onboarding_complete_v1'] = 'true'
+        ..values['coordination_api_session_v2'] = jsonEncode({
+          'token': 'old-access-token',
+          'expires_at': DateTime.now()
+              .toUtc()
+              .add(const Duration(hours: 1))
+              .toIso8601String(),
+          'session_expires_at': DateTime.now()
+              .toUtc()
+              .add(const Duration(days: 2))
+              .toIso8601String(),
+          'refresh_token': 'old-refresh-token',
+          'user': {'id': 'user-1', 'role': 'user'},
+          'remember_me': true,
+        });
+      final api = ApiClient(
+        baseUrl: '',
+        storage: storage,
+        client: MockClient((_) async => http.Response('{}', 200)),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: OpsTheme.dark,
+          home: PortalEntryPage(
+            api: api,
+            trainingStore: OperationsStore(File('/tmp/no-api-training.json')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Welcome back'), findsOneWidget);
+      expect(find.text('Sign in'), findsOneWidget);
+      expect(find.textContaining('temporarily unavailable'), findsNothing);
+      expect(find.textContaining('Session not restored'), findsNothing);
+      expect(find.text('Continue to your account'), findsNothing);
+      expect(find.text('Open isolated training workspace'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'admin incident cards show readable summaries and full details on demand',
     (tester) async {
       tester.view.physicalSize = const Size(360, 800);

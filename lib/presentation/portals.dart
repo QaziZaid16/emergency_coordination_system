@@ -96,16 +96,26 @@ class _PortalEntryPageState extends State<PortalEntryPage> {
       });
     } on ApiException catch (e) {
       if (!mounted) return;
+      final onboardingDone = await widget.api.hasCompletedOnboarding();
+      if (!mounted) return;
       setState(() {
         session = null;
-        restoreError = e.message;
+        onboardingRequired = !onboardingDone;
+        // An absent API origin is a deployment configuration state, not a
+        // signed-out user's error. Keep the login clean until they try to sign in.
+        restoreError = widget.api.configured ? e.message : null;
         restoring = false;
       });
     } catch (_) {
       if (!mounted) return;
+      final onboardingDone = await widget.api.hasCompletedOnboarding();
+      if (!mounted) return;
       setState(() {
         session = null;
-        restoreError = 'Could not verify this device session. Check the service and retry.';
+        onboardingRequired = !onboardingDone;
+        restoreError = widget.api.configured
+            ? 'Could not verify this device session. Check the service and retry.'
+            : null;
         restoring = false;
       });
     }
