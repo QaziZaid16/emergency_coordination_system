@@ -6,7 +6,7 @@ Flutter Android client, browser administration dashboard, and FastAPI service fo
 
 ## Current status
 
-- The repository contains source code and a demo APK, but no deployed API, dashboard, production database, or configured AI provider.
+- The repository contains source code and a demo APK, but no deployed API, dashboard, or production database. AI defaults to `AI_PROVIDER=none`; no hosted provider configuration or live inference has been verified.
 - Shared mobile portals require a running API and a configured API origin. The dashboard requires the same API.
 - `release/emergency-coordination-system-demo.apk` is an older, debug-key-signed demo build. It does not include all current source changes and is not suitable for store or production distribution.
 - Deployment preparation and remaining release gates are documented in [hosting](docs/operations/hosting.md). There is no verified live URL.
@@ -39,6 +39,20 @@ AI analysis is disabled by default. Admin Copilot and default incident analysis 
 | `.github/workflows/quality.yml` | Backend, Flutter, and JavaScript quality checks |
 
 Flutter and static-web copies of the official logo are both required for their respective asset pipelines. Backend assignment rules and the isolated training simulator also serve distinct API-backed and offline-demo workflows.
+
+## Technology stack
+
+| Component | Verified implementation |
+|---|---|
+| Android client | Flutter/Dart; `http`, `geolocator`, `flutter_secure_storage`, and `flutter_svg` dependencies (`pubspec.yaml`). |
+| Web dashboard and activation | Static HTML, CSS, and browser JavaScript in `web/`; no npm frontend package or bundler. |
+| Backend API | Python 3.12 container; FastAPI, Pydantic settings/schemas, SQLAlchemy, Alembic, Uvicorn, and PyJWT. Password hashing uses `pwdlib[argon2]`. |
+| Persistence | SQLAlchemy-supported SQLite for development/test; PostgreSQL via `psycopg` for production configuration. |
+| Optional model gateway | OpenRouter chat completions from backend-only Python `httpx`; model default is `google/gemma-4-31b-it`. Disabled unless configured. |
+| Tests and automation | Pytest, Flutter test/analyze, Node built-in syntax/helper tests, and GitHub Actions. |
+| Hosting templates | Vercel static output and Render Docker service configuration are present; no provider project is connected. |
+
+The repository does not bundle a map/routing SDK, push notification SDK/service, frontend chart library, or external emergency-dispatch integration.
 
 ## Requirements and versions
 
@@ -118,7 +132,7 @@ It stores synthetic records in the app's private local JSON file. Its role selec
 
 For a local preview, serve `web/` as static files (for example, `python3 -m http.server 8080 --directory web`) and open `/admin/`. Configure the service URL in the dashboard's development login flow and add the page origin to backend `CORS_ORIGINS`.
 
-The dashboard is plain HTML, CSS, and JavaScript; there is no frontend bundler or chart dependency. Its website-only operations overview uses a centered warm-neutral shell, white rounded sidebar and panels, dark selected navigation and actions, a chartreuse highlight, four compact KPI cards, and a seven-stage horizontal incident lifecycle. Three compact lower panels show priority incidents, persisted AI analysis state and responder workload, and items requiring coordinator attention. A notification shortcut shows the authenticated administrator's unread in-app records. A local account whose email begins with `demo.` receives a visible synthetic-data banner. No sample incidents are inserted into production views.
+The dashboard is plain HTML, CSS, and JavaScript; there is no frontend bundler or chart dependency. Its website-only operations overview uses a full-width warm-neutral workspace, a persistent rounded desktop sidebar, dark selected navigation and actions, a chartreuse highlight, four compact KPI cards, and a seven-stage incident lifecycle. Three lower panels show priority incidents, persisted AI analysis state and responder workload, and items requiring coordinator attention. At tablet widths the panels reflow to two columns; at phone widths they stack and the sidebar becomes a menu. A notification shortcut shows the authenticated administrator's unread in-app records. A local account whose email begins with `demo.` receives a visible synthetic-data banner. No sample incidents are inserted into production views.
 
 Dashboard data comes from the authenticated `/admin/dashboard`, `/admin/analytics?days=7`, `/incidents`, `/admin/responders`, `/notifications`, and (for accounts with audit permission) `/admin/audit` endpoints. Pipeline values are counts of incidents created in the selected seven-day window, grouped by their persisted incident status; selecting a stage opens the incident queue with that status filter. Priority and assignment actions use the existing authorized detail and assignment flows. Responder workload uses persisted assignments in the selected seven-day window, while availability is a current account-state snapshot. AI counts are based only on persisted incident-analysis metadata; they do not imply the provider is currently available or that AI dispatched a responder. Detailed reports retain the interactive SVG incident trend and category donut, status drill-downs, period selection, and authorized export. Empty or missing data is displayed as zero or an explicit empty state, never as invented operational data.
 
@@ -143,7 +157,7 @@ The mobile app reads compile-time `API_BASE_URL` and `ENABLE_TRAINING_WORKSPACE`
 - Responder status follows **Assigned → Accepted → En Route → On Scene → Resolved**. Server-side ownership and role checks govern access.
 - Authenticated clients refresh data by polling every 12 seconds. Notifications are persisted in-app events; there is no configured push delivery, notification email, WebSocket, or device token service.
 - Automatic assignment is disabled by default. When enabled by a Super Admin, the backend checks eligibility, capability, availability, workload, severity ceiling, and fresh accurate GPS; a coordinator still reviews cases that lack an eligible match. Distance is straight-line, not route time.
-- OpenRouter use is opt-in and disabled by default. When enabled, the server sends report category, description, severity, and urgency to Gemma; coordinates are not sent, and location text is excluded unless `AI_SHARE_INCIDENT_LOCATION=true`. The API requests strict JSON schema output; the backend independently validates content and falls back to deterministic analysis on provider failure. Model output does not control dispatch. The exact model ID is listed in OpenRouter's public catalog, but this repository has no API key, so account-specific access and live inference remain unverified. Current standard model pricing is listed around $0.09/M input and $0.34/M output tokens; the `:free` variant is a different ID and is not silently selected. Prices can change. See [model details and pricing](https://openrouter.ai/google/gemma-4-31b-it) and [structured output documentation](https://openrouter.ai/docs/features/structured-outputs).
+- OpenRouter use is opt-in and disabled by default. When enabled, the server sends report category, description, severity, and urgency to Gemma; coordinates are not sent, and location text is excluded unless `AI_SHARE_INCIDENT_LOCATION=true`. The API requests strict JSON schema output; the backend independently validates content and falls back to deterministic analysis on provider failure. Model output does not control dispatch. No account-specific access or live inference was verified. At the 2026-10-24 documentation check, OpenRouter listed standard pricing around $0.09/M input and $0.34/M output tokens; the `:free` variant is a different ID and is not silently selected. Prices can change. See [model details and pricing](https://openrouter.ai/google/gemma-4-31b-it) and [structured output documentation](https://openrouter.ai/docs/features/structured-outputs).
 - The prototype's priority scores and recommendations are not clinical or operational guidance. The backend is not yet deployed or approved for real emergency use.
 
 ## Roles, incident lifecycle, and API
@@ -217,6 +231,8 @@ node --check scripts/build_web_config.mjs
 
 Backend tests use SQLite; PostgreSQL integration/concurrency testing is still needed for deployment. See [test results and limitations](docs/audit/test-results.md) and the [requirements traceability matrix](docs/requirements/traceability-matrix.md).
 
+For the mobile visual update on 2026-10-24, `dart format --output=none --set-exit-if-changed lib test`, `flutter analyze`, and the explicit Flutter test command above passed (31 tests). A debug APK built from a clean temporary source copy, installed, and launched on a connected Android 16 phone. The inspected screenshot showed the direct login screen with the new theme. Authenticated dashboard flows were not checked on-device because that build had no configured API origin/session. An unrestricted `flutter test` attempt is not recommended on this mounted checkout: macOS AppleDouble `._*.dart` sidecars caused Flutter's discovery process to crash; the explicit test list is the same one configured in CI.
+
 The `Quality checks` workflow also validates the static configuration build. After `API_BASE_URL` and the Android signing secrets are configured in GitHub, it builds a signed APK after CI passes on `main`; qualifying builds are retained as 30-day Actions artifacts. A `v*` tag publishes a deliberate GitHub Release. Vercel Git integration and Render's Git-connected Blueprint still require owner account setup.
 
 ## Further documentation
@@ -229,3 +245,170 @@ The `Quality checks` workflow also validates the static configuration build. Aft
 - [Known verification limits](docs/audit/test-results.md)
 - [CI/CD status](docs/CI_CD_AUDIT.md)
 - [Build from this Seagate/exFAT checkout](SETUP.md)
+
+## Feature inventory and verification boundaries
+
+| Subsystem | Implementation in this repository | Verification boundary |
+|---|---|---|
+| Authentication | FastAPI login, registration, invitation acceptance, role lookup, refresh rotation, logout revocation; Flutter secure-storage client | API and Flutter tests cover session behavior. Hosted authentication is not configured. |
+| User incident reporting | Authenticated Flutter SOS form submits category, description, location source, and an idempotency key; API validates and persists the incident | Workflow/API tests cover persistence and validation. No emergency agency is contacted. |
+| Assignment | Deterministic server eligibility checks and optional policy-controlled assignment; administrator can assign/reassign | SQLite tests cover core rules. PostgreSQL multi-process concurrency has not been verified. |
+| AI analysis | Optional OpenRouter adapter requests structured Gemma output, validates it against report evidence, stores analysis separately, and falls back to deterministic rules | Mocked provider tests exist. Account-specific access and live inference are unverified. |
+| Follow-up intake | Mobile displays optional category-based follow-up questions and stores user-provided answers | UI/API tests cover the implemented flow. Questions are not dynamically generated by Gemma. |
+| Responder workflow | Authenticated assigned-case view, allowed status changes, location update, editable AI-assisted note draft | Automated tests cover existing client/API paths. Live role workflow on a deployed service is unverified. |
+| Notifications | Persistent, account-scoped in-app records, read state, and idempotent event keys | Database/API tests cover records and authorization. Push, WebSocket, and notification email delivery are not implemented. |
+| Administration | Static web dashboard plus permission-checked API for incidents, responders, resources, users, automation, reports, invitations, audit, and co-admins | JS helper and backend tests exist. There is no connected production host. |
+| Resolution report | Synchronous evidence-template report is stored on resolution with source record IDs and review fields | Backend tests cover implementation. It is not an investigation or verified cause analysis. |
+| Analytics | API-backed counts and persisted-record time series/status/resource summaries; dashboard charts and filters | Analytics helper tests pass. Metrics describe recorded data, not forecasts or response guarantees. |
+
+The Android client uses the same warm-neutral, near-black, chartreuse, and sage visual tokens as the website in `lib/presentation/design_system.dart`. It retains phone-appropriate bottom navigation and vertical scrolling. The browser application is static HTML/CSS/JavaScript (`web/admin/`); the service is FastAPI (`backend/app/`).
+
+## System workflows
+
+### Incident submission and processing
+
+```mermaid
+sequenceDiagram
+  actor Caller
+  participant App as Flutter client
+  participant API as FastAPI /api/v1
+  participant DB as SQL database
+  participant AI as Optional OpenRouter
+  Caller->>App: Submit emergency report
+  App->>API: POST /user/incidents + bearer token + Idempotency-Key
+  API->>API: Authenticate, authorize, validate fields and GPS freshness
+  API->>DB: Transaction: incident + pending analysis + optional policy-based assignment + in-app events
+  DB-->>API: Commit
+  API-->>App: Persisted incident response
+  API-)API: FastAPI background analysis task
+  API->>AI: Optional minimal report fields; no coordinates
+  AI-->>API: Structured decision-support result
+  API->>DB: Validate evidence and persist result or safe fallback
+  Note over API,DB: Database recovery worker reclaims pending/stale analysis records after restart
+```
+
+The request path persists first; AI success is not required for an incident to be recorded. Automatic assignment is a deterministic backend decision in the incident transaction and is disabled by default. If enabled, the backend checks severity policy, active account, availability, required capability, active workload, and recent accurate GPS for both parties. A model response cannot choose an assignment. If no eligible candidate exists, the incident remains available for coordinator review. GPS distance is straight-line distance only.
+
+### Status, notification, and report flow
+
+```mermaid
+stateDiagram-v2
+  [*] --> Unassigned
+  Unassigned --> Assigned: coordinator or eligible enabled policy
+  Assigned --> Accepted: assigned responder
+  Accepted --> EnRoute: assigned responder
+  EnRoute --> OnScene: assigned responder
+  OnScene --> Resolved: assigned responder or authorized coordinator
+  Unassigned --> Cancelled: authorized coordinator
+  Assigned --> Cancelled: authorized coordinator
+  Accepted --> Cancelled: authorized coordinator
+  EnRoute --> Cancelled: authorized coordinator
+  OnScene --> Cancelled: authorized coordinator
+  Resolved --> [*]
+  Cancelled --> [*]
+```
+
+Status changes, assignment changes, incident updates, audit entries, and in-app notifications are written by authenticated API routes. A resolution transition creates the evidence-template report in the same database transaction. Notifications are database records; the system does not confirm delivery to a device or person.
+
+### Deployment and CI
+
+```mermaid
+flowchart LR
+  Dev[Change pushed / pull request] --> CI[GitHub Actions Quality checks]
+  CI -->|Backend tests| B[FastAPI source]
+  CI -->|Flutter tests and analysis| M[Android source]
+  CI -->|Static config build| W[Static website]
+  CI -. when configured .-> APK[Signed APK artifact / tagged release]
+  Main[main after checks] -. provider account setup required .-> Host[Render API + Vercel static site]
+  Host --> PG[(Configured PostgreSQL target)]
+```
+
+The repository includes deployment templates and CI configuration, but no provider projects, hosted database, or live URLs are configured. See [hosting preparation](docs/operations/hosting.md); the diagram's hosted targets are plans, not deployed services.
+
+## API route catalog
+
+The API is mounted at `/api/v1`. The running FastAPI service publishes its OpenAPI UI at `/docs` and schema at `/openapi.json`. Route schemas, dependencies, and detailed permission checks in `backend/app/api.py`, `backend/app/schemas.py`, and `backend/app/security.py` are authoritative; this table groups the actual routes for orientation. Protected resource routes require a bearer access token. Login and registration use credentials, invitation acceptance uses its one-time invitation token, and refresh uses the refresh token in its request body. Role and Co-Admin permission checks are enforced server-side.
+
+| Method and path | Purpose / access boundary |
+|---|---|
+| `POST /auth/login`, `POST /auth/register`, `POST /auth/accept-invitation` | Sign in, create a user account, or activate an invited account; credentials/passwords are validated by the API. |
+| `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me` | Rotate remembered session, revoke session, and validate current authenticated identity. |
+| `POST /user/incidents` | User incident submission; bearer token plus required `Idempotency-Key` request header. |
+| `GET /incidents`, `GET /incidents/{incident_id}`, `GET /incidents/{incident_id}/updates` | Role-scoped incident data. Users are limited to their own incidents; responders to authorized assignments; admin access depends on permission. |
+| `GET /incidents/{incident_id}/intake`, `POST /incidents/{incident_id}/intake/answers`, `POST /incidents/{incident_id}/updates` | Read and submit follow-up answers or incident updates under incident ownership/assignment rules. |
+| `POST /responder/incidents/{incident_id}/rewrite`, `POST /responder/incidents/{incident_id}/status`, `GET /responder/profile`, `PUT /responder/location` | Responder-only writing assistance, lifecycle action, profile, and location endpoints. Status is distinct from `/incidents/{incident_id}/updates`. |
+| `GET /incidents/{incident_id}/report`, `POST /admin/incidents/{incident_id}/report/review` | Read report if authorized; review requires the admin report/update permission. |
+| `GET /notifications`, `PATCH /notifications/{notification_id}/read`, `PATCH /notifications/read-all` | Current user's persistent in-app notification inbox and read state. |
+| `GET /admin/dashboard`, `GET /admin/analytics`, `POST /admin/copilot` | Admin dashboard, report data, and read-only rules-based copilot; each requires its corresponding permission. |
+| `GET /admin/responders`, `GET /admin/users`, `GET /admin/resources` | Permission-scoped administrative directories. |
+| `POST /admin/invitations/responders`, `GET /admin/invitations`, `POST /admin/invitations/{invitation_id}/revoke`, `POST /admin/invitations/responders/{user_id}/resend` | Responder invitation lifecycle; administrator management permission and invitation throttling apply. |
+| `GET /admin/coadmins`, `POST /admin/coadmins`, `PATCH /admin/coadmins/{user_id}/active`, `PATCH /admin/coadmins/{user_id}/permissions` | Super Admin co-admin lifecycle and scoped permissions. |
+| `GET /admin/automation`, `PUT /admin/automation` | Inspect/update opt-in automatic assignment policy; policy changes are restricted to Super Admin. |
+| `GET /admin/incidents/{incident_id}/recommendations`, `GET /admin/incidents/{incident_id}/duplicates`, `POST /admin/incidents/{incident_id}/analysis/retry` | Deterministic recommendation, review-only duplicate candidates, and authorized analysis retry. |
+| `POST /admin/incidents/{incident_id}/assign`, `POST /admin/incidents/{incident_id}/reassign`, `POST /admin/incidents/{incident_id}/cancel`, `POST /admin/incidents/{incident_id}/resolve` | Coordinator operations with assignment/update permission and server-side validation. |
+| `POST /admin/users`, `PATCH /admin/users/{user_id}/active`, `PATCH /admin/responders/{responder_id}/availability`, `PUT /admin/responders/{responder_id}/capabilities`, `POST /admin/resources`, `PATCH /admin/resources/{resource_id}` | Account, responder, and resource administration; required permission depends on target and method. |
+| `GET /admin/audit`, `GET /changes` | Permission-scoped audit listing and authenticated change polling. |
+| `GET /health/live`, `GET /health/ready` | Liveness and database readiness; outside the `/api/v1` prefix. |
+
+Some coordinator actions have additional state/permission checks beyond role labels. For exact JSON fields, response schemas, query parameters, and error shapes, use the source-backed OpenAPI document rather than inferring them from the route name.
+
+## Database model
+
+SQLAlchemy models are in `backend/app/models.py`; ordered Alembic revisions are in `backend/migrations/versions/`. Migrations are the deployment schema mechanism. Development/test startup may create missing tables; production startup applies Alembic through `backend/start.sh` before binding the API. The SQLite database is for local work/tests; production configuration rejects non-PostgreSQL URLs.
+
+```mermaid
+erDiagram
+  USERS ||--o| RESPONDERS : profile
+  USERS ||--o{ INCIDENTS : reports
+  USERS ||--o{ ASSIGNMENTS : responds
+  USERS o|--o{ ASSIGNMENTS : assigns
+  INCIDENTS ||--o{ ASSIGNMENTS : has
+  RESOURCES o|--o{ ASSIGNMENTS : allocates
+  INCIDENTS ||--o{ INCIDENT_UPDATES : records
+  USERS ||--o{ INCIDENT_UPDATES : authors
+  INCIDENTS ||--o| INCIDENT_ANALYSES : analyzed_as
+  INCIDENTS ||--o{ INCIDENT_REPORTS : documented_by
+  INCIDENTS ||--o{ NOTIFICATIONS : about
+  USERS ||--o{ NOTIFICATIONS : receives
+  USERS ||--o{ AUTH_SESSIONS : authenticates
+  USERS ||--o{ ACCOUNT_INVITATIONS : invited_account
+  USERS ||--o{ AUDIT_EVENTS : acts
+  USERS o|--o{ INCIDENT_REPORTS : reviews
+  USERS o|--o{ COORDINATION_POLICY : updates
+```
+
+`USERS` carries the role, password hash, active flag, and explicit Co-Admin permission list. `RESPONDERS` extends an account with capability, availability, and optional timestamped/accuracy-tagged location. `INCIDENTS` stores the user report, type, location provenance, severity/urgency, computed prototype priority, status, and caller-scoped idempotency key. `ASSIGNMENTS` references an incident, responder, optional resource, and assigning user; partial unique indexes prevent more than one active assignment per responder or incident. `INCIDENT_UPDATES` retains actor, original/final note, and AI-assistance provenance. `INCIDENT_ANALYSES` is a one-to-one database-backed analysis work/result record; it is not a general-purpose queue table. `INCIDENT_REPORTS` contains versioned report content, source-record IDs, and review metadata. `NOTIFICATIONS` is an account-scoped in-app record with a unique event key. `AUTH_SESSIONS` stores token identifiers, expiration, revocation, and only a hash for refresh tokens. `ACCOUNT_INVITATIONS`, `RESOURCES`, `COORDINATION_POLICY`, and `AUDIT_EVENTS` support their corresponding flows.
+
+Schema-level checks cover incident severity/urgency and coordinate ranges, resource quantities, unique email/reference/idempotency values, invitation tokens, report versions, notification event keys, and active assignment indexes. This does not replace deployment backup/restore testing; see [backup and recovery](docs/operations/backup-and-recovery.md).
+
+## Environment and secret reference
+
+`backend/.env.example` is the local template; actual `backend/.env` and host settings are private. Defaults below come from `backend/app/config.py`, `backend/.env.example`, and deployment files. “Optional” means the code has a default or feature can remain disabled; production validation imposes additional requirements.
+
+| Variable | Consumer | Required / default | Secret? |
+|---|---|---|---|
+| `DATABASE_URL` | Backend SQLAlchemy | Required; local SQLite example; production must be `postgresql+psycopg://...` | Yes when credentials are embedded |
+| `JWT_SECRET` | Backend session signing | Required, at least 32 chars outside test | Yes |
+| `ENVIRONMENT` | Backend lifecycle/config validation | Optional; `development`; production settings validated | No |
+| `ACCESS_TOKEN_MINUTES`, `REMEMBER_ME_DAYS` | Backend auth | Optional; 30 minutes / 30 days | No |
+| `CORS_ORIGINS`, `PUBLIC_APP_URL` | Backend web origins/invitation links | Optional in local defaults; real HTTPS origins required in production | No |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | Backend responder invitation email | Optional; SMTP unset disables actual email (development can return activation URL) | Credentials/password secret |
+| `AI_PROVIDER`, `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, `OPENROUTER_MODEL` | Backend analysis/writing | Optional; `none`, empty key, official gateway default, `google/gemma-4-31b-it` | Key secret |
+| `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` | Legacy-compatible model adapter | Optional; blank | API key secret |
+| `AI_TIMEOUT_SECONDS`, `AI_MAX_ATTEMPTS`, `AI_RATE_LIMIT_PER_MINUTE`, `AI_SHARE_INCIDENT_LOCATION` | Backend AI behavior | Optional; 8, 2, 60, and false | No |
+| `RECOMMENDATION_DISTANCE_WEIGHT`, `RECOMMENDATION_CAPABILITY_WEIGHT`, `RECOMMENDATION_WORKLOAD_WEIGHT` | Backend ranking | Optional; 45, 35, 20 | No |
+| `POSTGRES_PASSWORD` | Local Compose PostgreSQL | Required for local Compose; choose a fresh value | Yes |
+| `PORT` | Container start script/host | Host-supplied; defaults to 8000 in `backend/start.sh` | No |
+| `ECS_API_BASE_URL` | Static website build | Required only for configured build (`--required`); public HTTPS API origin | No |
+| `API_BASE_URL` | Flutter compile-time API origin and conditional CI release build | Required for real API use/release; no source default | No |
+| `ENABLE_TRAINING_WORKSPACE` | Flutter debug compile-time flag | Optional; false unless explicitly enabled | No |
+| `ANDROID_KEYSTORE_PATH` | Local Android release build; CI sets a runner-temp path from the base64 key | Required for signed release build; filesystem path | Path is not a credential; the keystore file is secret |
+| `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | GitHub signed APK job | Required only for signed release job | Yes |
+
+Do not put backend secrets in Flutter `--dart-define`, static build configuration, the APK, or committed environment files. Rotate exposed credentials with the issuing provider; do not reuse a credential copied from an old local configuration.
+
+## Contributing, license, and acknowledgements
+
+No contribution convention or license file is present in the audited repository. Until a license is added, reuse and redistribution terms are not declared here; do not assume an open-source license. A project owner should add a license before external reuse.
+
+Recommended contribution workflow (not an existing enforced policy): create a focused branch; keep each commit scoped; add or update backend, Flutter, or JavaScript tests for behavior changes; run the commands in [Checks](#checks); include database migrations and update `.env.example`/documentation when schema, configuration, endpoints, or workflows change; never include local `.env`, database files, signing material, or user data. For a report, include the exact command, sanitized error, relevant version, and steps to reproduce. No additional acknowledgements or sponsorship claims are made because the repository does not document them.
