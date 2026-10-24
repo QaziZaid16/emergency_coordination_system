@@ -18,8 +18,8 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
 from app.dispatch import distance_km, priority_for
-from app.models import AccountInvitation, Assignment, AuditEvent, AuthSession, Incident, IncidentAnalysis, IncidentUpdate, ResponderProfile, Resource, User, now_utc
-from app.schemas import AssignmentCreate, AvailabilityUpdate, CoAdminCreate, CopilotQuestion, IncidentCreate, InvitationAccept, LoginRequest, LoginResponse, MessageCreate, RefreshRequest, ResponderInviteCreate, ResponderLocation, ResourceCreate, StatusUpdate, UserCreate, UserRegister, UserView
+from app.models import AccountInvitation, Assignment, AuditEvent, AuthSession, CoordinationPolicy, Incident, IncidentAnalysis, IncidentUpdate, Notification, ResponderProfile, Resource, User, now_utc
+from app.schemas import AssignmentCreate, AutomaticAssignmentPolicyUpdate, AvailabilityUpdate, CoAdminCreate, CopilotQuestion, IncidentCreate, InvitationAccept, LoginRequest, LoginResponse, MessageCreate, RefreshRequest, ResponderInviteCreate, ResponderLocation, ResourceCreate, StatusUpdate, UserCreate, UserRegister, UserView
 from app.intelligence import analyze_incident_task, find_duplicate_candidates
 from app.security import bearer, current_user, encode_access_token, hash_password, hash_refresh_token, issue_token, require_roles, verify_password
 
@@ -100,6 +100,65 @@ def audit(db: Session, actor: User, action: str, entity_type: str, entity_id: st
     db.add(AuditEvent(actor_id=actor.id, action=action, entity_type=entity_type, entity_id=entity_id, details=details or {}))
 
 
+def notify(db: Session, recipient_id: str, key: str, kind: str, title: str, message: str, incident_id: str | None = None):
+    if not db.scalar(select(Notification.id).where(Notification.user_id == recipient_id, Notification.event_key == key)):
+        db.add(Notification(user_id=recipient_id, incident_id=incident_id, event_key=key, kind=kind, title=title, message=message))
+
+
+def notify_coordinators(db: Session, key: str, kind: str, title: str, message: str, incident_id: str | None = None):
+    coordinators = db.scalars(select(User).where(User.active.is_(True), User.role.in_(("admin", "super_admin")))).all()
+    for coordinator in coordinators:
+        if coordinator.role == "admin" and "view_incidents" not in (coordinator.permissions or []):
+            continue
+        notify(db, coordinator.id, key, kind, title, message, incident_id)
+
+
+def notify_status_change(db: Session, incident: Incident, status: str):
+    key = "incident:" + incident.id + ":status:" + status
+    notify(db, incident.reporter_id, key, "incident_status", "Incident status updated", f"Your incident {incident.reference} is now {status}.", incident.id)
+
+
+def automatic_candidate(db: Session, incident: Incident) -> tuple[User, ResponderProfile, float, list[str]] | None:
+    if incident.latitude is None or incident.longitude is None or not incident.location_at or incident.accuracy_m is None or incident.accuracy_m > 100:
+        return None
+    now = now_utc()
+    if now - as_utc(incident.location_at) > timedelta(minutes=15):
+        return None
+    active_ids = set(db.scalars(select(Assignment.responder_id).where(Assignment.status.in_(ACTIVE_ASSIGNMENTS))).all())
+    category = incident.emergency_type.casefold()
+    if "medical" in category or "ambulance" in category:
+        required = ("medical", "ambulance", "paramedic", "ems")
+    elif "fire" in category or "rescue" in category:
+        required = ("fire", "rescue")
+    elif "police" in category or "security" in category:
+        required = ("police", "security")
+    else:
+        required = ("other", "general", "emergency")
+    recent_workload: dict[str, int] = {}
+    since = now - timedelta(hours=24)
+    for row in db.scalars(select(Assignment).where(Assignment.status.in_(("Completed", "Resolved")), Assignment.ended_at.is_not(None), Assignment.ended_at >= since)).all():
+        recent_workload[row.responder_id] = recent_workload.get(row.responder_id, 0) + 1
+    settings = get_settings()
+    distance_weight = settings.recommendation_distance_weight
+    workload_weight = settings.recommendation_workload_weight
+    total_weight = max(0.0, distance_weight) + max(0.0, workload_weight)
+    candidates = []
+    for account, profile in db.execute(select(User, ResponderProfile).join(ResponderProfile).where(User.role == "responder", User.active.is_(True), ResponderProfile.available.is_(True))).all():
+        if account.id in active_ids or not any(any(term in str(skill).casefold() for term in required) for skill in (profile.capabilities or [])):
+            continue
+        if profile.latitude is None or profile.longitude is None or profile.location_accuracy_m is None or profile.location_accuracy_m > 100 or not profile.location_at or now - as_utc(profile.location_at) > timedelta(minutes=15):
+            continue
+        distance = distance_km(incident.latitude, incident.longitude, profile.latitude, profile.longitude)
+        workload = recent_workload.get(account.id, 0)
+        distance_score = max(0.0, 1.0 - min(distance, 100.0) / 100.0)
+        workload_score = 1.0 / (1.0 + workload)
+        score = (max(0.0, distance_weight) * distance_score + max(0.0, workload_weight) * workload_score) / total_weight if total_weight else 0.0
+        reasons = [f"Matching capability and eligible availability", f"Fresh accurate GPS: {distance:.1f} km away", f"Completed assignments in last 24 hours: {workload}"]
+        candidates.append((-score, account.display_name.casefold(), account, profile, score, reasons))
+    candidates.sort(key=lambda row: (row[0], row[1]))
+    return (candidates[0][2], candidates[0][3], round(candidates[0][4] * 100, 1), candidates[0][5]) if candidates else None
+
+
 def incident_view(db: Session, incident: Incident, include_analysis: bool = True) -> dict:
     assignment = db.scalar(select(Assignment).where(
         Assignment.incident_id == incident.id,
@@ -126,6 +185,7 @@ def incident_view(db: Session, incident: Incident, include_analysis: bool = True
         "status": incident.status,
         "responder_id": responder.id if responder else None,
         "responder_name": responder.display_name if responder else None,
+        "assignment_source": assignment.assignment_source if assignment else None,
         "resource_id": resource.id if resource else None,
         "resource_name": resource.name if resource else None,
         "created_at": incident.created_at,
@@ -297,6 +357,31 @@ def create_user_incident(
     db.add(IncidentAnalysis(incident_id=incident.id, status="pending", provider="pending", validation_outcome="pending"))
     db.add(IncidentUpdate(incident_id=incident.id, actor_id=user.id, kind="submitted", message="Request received by the coordination system. No external service has been contacted."))
     audit(db, user, "incident.submitted", "incident", incident.id, {"reference": incident.reference})
+    notify_coordinators(db, "incident:" + incident.id + ":submitted", "new_incident", "New incident received", f"Incident {incident.reference} was received by the coordination system.", incident.id)
+    notify(db, incident.reporter_id, "incident:" + incident.id + ":status:Unassigned", "incident_status", "Incident received", f"Your incident {incident.reference} was received by the coordination system.", incident.id)
+    policy = db.get(CoordinationPolicy, "default")
+    auto_enabled = bool(policy and policy.auto_assignment_enabled)
+    if auto_enabled and body.severity <= policy.auto_assign_max_severity:
+        candidate = automatic_candidate(db, incident)
+        if candidate:
+            responder, profile, ranking_score, ranking_reasons = candidate
+            try:
+                with db.begin_nested():
+                    db.add(Assignment(incident_id=incident.id, responder_id=responder.id, resource_id=None, assigned_by=None, assignment_source="automatic", status="Assigned"))
+                    profile.available = False
+                    incident.status = "Assigned"
+                    db.add(IncidentUpdate(incident_id=incident.id, actor_id=user.id, kind="auto_assigned", message="Automatically assigned to an eligible responder under the configured policy."))
+                    audit(db, user, "incident.auto_assigned", "incident", incident.id, {"responder_id": responder.id, "score": ranking_score, "reasons": ranking_reasons, "policy": "deterministic-v1"})
+                    notify(db, responder.id, "incident:" + incident.id + ":assigned:" + responder.id, "assignment", "New incident assigned", f"Incident {incident.reference} is ready to review.", incident.id)
+                    notify(db, incident.reporter_id, "incident:" + incident.id + ":status:Assigned", "incident_status", "Responder assigned", f"A responder has been assigned to incident {incident.reference}.", incident.id)
+                    notify_coordinators(db, "incident:" + incident.id + ":auto_assigned", "auto_assignment", "Automatic assignment completed", f"Incident {incident.reference} was assigned automatically.", incident.id)
+                    db.flush()
+            except IntegrityError:
+                incident.status = "Unassigned"
+                audit(db, user, "incident.auto_assignment_failed", "incident", incident.id, {"reason": "Concurrent assignment constraint", "policy": "deterministic-v1"})
+                notify_coordinators(db, "incident:" + incident.id + ":auto_assignment_failed", "automation_failure", "Automatic assignment needs review", f"Assignment for incident {incident.reference} conflicted with another operation; it remains unassigned.", incident.id)
+        else:
+            notify_coordinators(db, "incident:" + incident.id + ":auto_assignment_review", "automation_review", "Manual review required", f"Incident {incident.reference} was left unassigned because no responder met the automatic policy's skill, availability, and fresh-location requirements.", incident.id)
     try:
         db.commit()
     except IntegrityError:
@@ -308,6 +393,57 @@ def create_user_incident(
     db.refresh(incident)
     background_tasks.add_task(analyze_incident_task, incident.id)
     return incident_view(db, incident, include_analysis=False)
+
+
+@router.get("/notifications")
+def list_notifications(limit: int = Query(default=100, ge=1, le=200), user: User = Depends(current_user), db: Session = Depends(get_db)):
+    rows = db.scalars(select(Notification).where(Notification.user_id == user.id).order_by(Notification.created_at.desc()).limit(limit)).all()
+    return [{"id": row.id, "incident_id": row.incident_id, "kind": row.kind, "title": row.title, "message": row.message, "read": row.read_at is not None, "created_at": row.created_at} for row in rows]
+
+
+@router.patch("/notifications/read-all")
+def read_all_notifications(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    rows = db.scalars(select(Notification).where(Notification.user_id == user.id, Notification.read_at.is_(None))).all()
+    stamp = now_utc()
+    for row in rows:
+        row.read_at = stamp
+    db.commit()
+    return {"updated": len(rows)}
+
+
+@router.patch("/notifications/{notification_id}/read")
+def read_notification(notification_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    row = db.scalar(select(Notification).where(Notification.id == notification_id, Notification.user_id == user.id))
+    if not row:
+        raise HTTPException(404, "Notification not found")
+    row.read_at = row.read_at or now_utc()
+    db.commit()
+    return {"read": True, "id": row.id}
+
+
+@router.get("/admin/automation")
+def get_automation_policy(_admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
+    policy = db.get(CoordinationPolicy, "default")
+    if not policy:
+        policy = CoordinationPolicy(id="default", auto_assignment_enabled=False, auto_assign_max_severity=3)
+        db.add(policy)
+        db.commit()
+    return {"enabled": policy.auto_assignment_enabled, "max_severity": policy.auto_assign_max_severity, "requires_fresh_accurate_location": True, "version": "deterministic-v1"}
+
+
+@router.put("/admin/automation")
+def update_automation_policy(body: AutomaticAssignmentPolicyUpdate, admin: User = Depends(require_roles("super_admin")), db: Session = Depends(get_db)):
+    policy = db.scalar(select(CoordinationPolicy).where(CoordinationPolicy.id == "default").with_for_update())
+    if not policy:
+        policy = CoordinationPolicy(id="default")
+        db.add(policy)
+    policy.auto_assignment_enabled = body.enabled
+    policy.auto_assign_max_severity = body.max_severity
+    policy.updated_by = admin.id
+    policy.updated_at = now_utc()
+    audit(db, admin, "automation.policy_updated", "coordination_policy", "default", {"enabled": body.enabled, "max_severity": body.max_severity})
+    db.commit()
+    return {"enabled": policy.auto_assignment_enabled, "max_severity": policy.auto_assign_max_severity, "requires_fresh_accurate_location": True, "version": "deterministic-v1"}
 
 
 @router.get("/incidents")
@@ -1018,13 +1154,15 @@ def assign_incident(incident_id: str, body: AssignmentCreate, admin: User = Depe
         changed = db.execute(update(Resource).where(Resource.id == resource.id, Resource.allocated < Resource.quantity).values(allocated=Resource.allocated + 1))
         if changed.rowcount != 1:
             raise HTTPException(409, "Resource has no available units")
-    assignment = Assignment(incident_id=incident.id, responder_id=responder.id, resource_id=body.resource_id, assigned_by=admin.id, status="Assigned")
+    assignment = Assignment(incident_id=incident.id, responder_id=responder.id, resource_id=body.resource_id, assigned_by=admin.id, assignment_source="manual", status="Assigned")
     db.add(assignment)
     profile.available = False
     incident.status = "Assigned"
     incident.updated_at = now_utc()
     db.add(IncidentUpdate(incident_id=incident.id, actor_id=admin.id, kind="assigned", message=f"Assigned to {responder.display_name}."))
     audit(db, admin, "incident.assigned", "incident", incident.id, {"responder_id": responder.id, "resource_id": body.resource_id})
+    notify(db, responder.id, "incident:" + incident.id + ":assigned:" + responder.id, "assignment", "New incident assigned", f"Incident {incident.reference} is ready to review.", incident.id)
+    notify_status_change(db, incident, "Assigned")
     try:
         db.commit()
     except IntegrityError:
@@ -1062,12 +1200,15 @@ def reassign_incident(incident_id: str, body: AssignmentCreate, admin: User = De
             raise HTTPException(409, "The selected resource is not a compatible type for this emergency")
         if not resource or db.execute(update(Resource).where(Resource.id == resource_id, Resource.allocated < Resource.quantity).values(allocated=Resource.allocated + 1)).rowcount != 1:
             raise HTTPException(409, "Replacement resource is unavailable")
-    replacement = Assignment(incident_id=incident.id, responder_id=responder.id, resource_id=resource_id, assigned_by=admin.id, status="Assigned")
+    replacement = Assignment(incident_id=incident.id, responder_id=responder.id, resource_id=resource_id, assigned_by=admin.id, assignment_source="manual", status="Assigned")
     db.add(replacement)
     profile.available = False
     incident.status = "Assigned"
     db.add(IncidentUpdate(incident_id=incident.id, actor_id=admin.id, kind="reassigned", message=f"Reassigned to {responder.display_name}."))
     audit(db, admin, "incident.reassigned", "incident", incident.id, {"from": old.responder_id, "to": responder.id})
+    notify(db, old.responder_id, "incident:" + incident.id + ":reassigned_from:" + old.responder_id, "assignment_changed", "Incident reassigned", f"Incident {incident.reference} was reassigned.", incident.id)
+    notify(db, responder.id, "incident:" + incident.id + ":assigned:" + responder.id, "assignment", "New incident assigned", f"Incident {incident.reference} is ready to review.", incident.id)
+    notify_status_change(db, incident, "Assigned")
     try:
         db.commit()
     except IntegrityError:
@@ -1092,6 +1233,9 @@ def cancel_incident(incident_id: str, admin: User = Depends(require_roles("admin
     incident.status = "Cancelled"
     db.add(IncidentUpdate(incident_id=incident.id, actor_id=admin.id, kind="cancelled", message="Incident request cancelled by an administrator."))
     audit(db, admin, "incident.cancelled", "incident", incident.id)
+    if assignment:
+        notify(db, assignment.responder_id, "incident:" + incident.id + ":cancelled:" + assignment.responder_id, "assignment_changed", "Incident cancelled", f"Incident {incident.reference} was cancelled.", incident.id)
+    notify_status_change(db, incident, "Cancelled")
     db.commit()
     return incident_view(db, incident)
 
@@ -1112,6 +1256,9 @@ def admin_resolve_incident(incident_id: str, admin: User = Depends(require_roles
     incident.status = "Resolved"
     db.add(IncidentUpdate(incident_id=incident.id, actor_id=admin.id, kind="resolved", message="Incident marked resolved by an administrator."))
     audit(db, admin, "incident.resolved_by_admin", "incident", incident.id)
+    if assignment:
+        notify(db, assignment.responder_id, "incident:" + incident.id + ":resolved:" + assignment.responder_id, "incident_status", "Incident resolved", f"Incident {incident.reference} was marked resolved.", incident.id)
+    notify_status_change(db, incident, "Resolved")
     db.commit()
     return incident_view(db, incident)
 
@@ -1138,6 +1285,8 @@ def update_status(incident_id: str, body: StatusUpdate, responder: User = Depend
             if resource: resource.allocated = max(0, resource.allocated - 1)
     db.add(IncidentUpdate(incident_id=incident.id, actor_id=responder.id, kind="status", message=f"Status updated to {body.status}."))
     audit(db, responder, "incident.status_changed", "incident", incident.id, {"status": body.status})
+    notify_status_change(db, incident, body.status)
+    notify_coordinators(db, "incident:" + incident.id + ":status:" + body.status, "incident_status", "Incident status changed", f"Incident {incident.reference} is now {body.status}.", incident.id)
     db.commit()
     return incident_view(db, incident)
 

@@ -172,7 +172,8 @@ class Assignment(Base):
     responder_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     resource_id: Mapped[str | None] = mapped_column(ForeignKey("resources.id"))
     status: Mapped[str] = mapped_column(String(24), default="Assigned", index=True)
-    assigned_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    assigned_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    assignment_source: Mapped[str] = mapped_column(String(16), default="manual", nullable=False)
     assigned_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc
     )
@@ -194,6 +195,29 @@ class IncidentUpdate(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, index=True
     )
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    __table_args__ = (UniqueConstraint("user_id", "event_key", name="uq_notification_user_event"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    incident_id: Mapped[str | None] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), index=True)
+    event_key: Mapped[str] = mapped_column(String(160))
+    kind: Mapped[str] = mapped_column(String(32), index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    message: Mapped[str] = mapped_column(String(240))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
+
+
+class CoordinationPolicy(Base):
+    __tablename__ = "coordination_policy"
+    id: Mapped[str] = mapped_column(String(16), primary_key=True, default="default")
+    auto_assignment_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    auto_assign_max_severity: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    updated_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
 class AuditEvent(Base):

@@ -47,6 +47,14 @@ Mobile login no longer asks for a role or portal. The API returns the account's 
 
 The legacy direct administrator endpoint refuses responder creation; responder accounts must use the invitation and activation flow.
 
+## In-app notifications and automatic assignment
+
+Apply the new migration with `alembic upgrade head`. The authenticated `GET /api/v1/notifications` endpoint returns only the current account's persistent in-app events. Mark one with `PATCH /api/v1/notifications/{id}/read` or all with `PATCH /api/v1/notifications/read-all`. Notification writes are part of the incident/assignment/status transaction and are idempotent per account/event key. This is not push or email delivery.
+
+`GET /api/v1/admin/automation` reports the coordination policy. Only a Super Admin may `PUT` that endpoint with `{"enabled": true, "max_severity": 3}`. It defaults disabled. When enabled, it uses deterministic eligible-responder checks and the configured distance/workload ranking weights. Both incident and responder GPS must be ≤100 m accuracy and ≤15 minutes old; capability, active account, availability, no existing active task, and configured severity ceiling also apply. Otherwise the case stays unassigned for review. Assignment source and the algorithm decision are visible in incident data/audit. The same transaction and existing database uniqueness indexes protect assignment state; a conflict leaves the incident recorded as unassigned and emits a coordinator review event.
+
+The policy's demo default is severity 3/5. This is a configurable academic example, not an emergency triage rule. The service still has no FCM, device tokens, remote notification delivery attempts, or notification email provider.
+
 Run the backend workflow suite:
 
 ```sh

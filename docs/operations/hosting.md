@@ -33,6 +33,10 @@ The CLI prompts twice for a password and stores an Argon2 hash. It creates the f
 
 The script rejects absent, non-HTTPS, malformed, or obvious placeholder API origins. Preview deployments must also be included in backend CORS if they are to call the service. Do not add database, JWT, SMTP, or other server secrets to Vercel frontend variables.
 
+### Demonstration-tier limits reviewed (2026-10-24)
+
+The repository's Vercel static-site choice avoids running an application server for the dashboard; a live deploy still requires an owned project, API origin, and review of the selected Vercel plan limits. A possible backend alternative, Render Free, is unsuitable for durable emergency-style demonstration data: free web services sleep after 15 minutes without inbound traffic, restart takes about a minute, and local filesystem data is ephemeral. Render Free Postgres is capped at 1 GB, expires 30 days after creation, and has no backups. See [Render Free service limits](https://render.com/docs/free). A production or persistent academic demo must select an appropriate managed database and budget/backup policy rather than assume free tier means persistent or always available.
+
 For Android release builds, set `API_BASE_URL` to the same verified HTTPS API origin and run `sh scripts/build_android_release.sh`. That wrapper rejects empty or placeholder values before invoking Flutter. Android production signing is still not configured; the current Gradle release signing setup uses the debug key and is not distributable.
 
 For local static preview, `ECS_API_BASE_URL` may be omitted and the dashboard keeps its manual service URL field:
@@ -56,7 +60,7 @@ Use a Docker-capable web-service host with a managed PostgreSQL database on a pr
 | `REMEMBER_ME_DAYS` | Optional; defaults to 30, bounded 1–365 |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | Required to deliver responder invitations in production |
 
-`AI_PROVIDER` defaults to `none`; no AI key is required. Do not configure optional AI processing without a separate privacy and cost decision. Database credentials, JWT secret, and SMTP credentials stay in the backend host's secret store and never enter Flutter, Vercel, browser assets, or Git.
+`AI_PROVIDER` defaults to `none`; no AI key is required. Do not configure optional AI processing without a separate privacy and cost decision. Hosted open-weight inference was not selected because no provider/model, key, or data-retention approval was available. Hugging Face currently documents $0.10 monthly Inference Provider credits for Free accounts, subject to change, then pay-as-you-go when additional credits are purchased; model weights do not make provider inference free. See [Hugging Face pricing](https://huggingface.co/docs/inference-providers/en/pricing). Database credentials, JWT secret, and SMTP credentials stay in the backend host's secret store and never enter Flutter, Vercel, browser assets, or Git.
 
 Deployment sequence:
 

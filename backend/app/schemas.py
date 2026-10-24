@@ -133,6 +133,11 @@ class AvailabilityUpdate(BaseModel):
     available: bool
 
 
+class AutomaticAssignmentPolicyUpdate(BaseModel):
+    enabled: bool
+    max_severity: int = Field(ge=1, le=5)
+
+
 class ResponderLocation(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)

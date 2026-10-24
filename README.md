@@ -13,6 +13,7 @@ A Flutter and Dart Android app with unified role-routed sign-in for Users and Re
 - [Use the administration dashboard](#browser-administration-dashboard)
 - [Use the User Portal](#use-the-user-portal)
 - [Use the Responder Portal](#use-the-responder-portal)
+- [Notifications and automatic assignment](#notifications-and-automatic-assignment)
 - [Use the isolated training workspace](#use-the-isolated-training-workspace)
 - [Use the coordinator console](#use-the-coordinator-console)
 - [Use the responder workspace](#use-the-responder-workspace)
@@ -129,7 +130,7 @@ Remember Me is unchecked by default. When selected, the app stores a rotating re
 
 Host the `web/` directory on a static server, add that site's origin to backend `CORS_ORIGINS`, configure `ECS_API_BASE_URL` for the static build (or enter the service URL on the local development login page), and open `/admin/`. The overview, incident queue, responder list, user list, resource inventory, reports, and audit history load current API data. Co-Admins see only views permitted by their account, and the API rejects unauthorized requests even if a client control is bypassed. See [production hosting readiness](docs/operations/hosting.md).
 
-The Super Admin creates Co-Admins and grants a small set of permissions. Responder creation sends a one-time invitation link; in development without SMTP the dashboard displays the local activation link, while production requires a working SMTP configuration. Incident assignment remains a human decision and the API validates responder compatibility, availability, and resource capacity. More dashboard setup detail is in [backend/README.md](backend/README.md).
+The Super Admin creates Co-Admins and grants a small set of permissions. Responder creation sends a one-time invitation link; in development without SMTP the dashboard displays the local activation link, while production requires a working SMTP configuration. Incident assignment remains a human decision by default. The dashboard includes a persisted in-app notification inbox and a Super Admin-only automatic assignment policy screen. Automatic assignment is disabled initially and requires a fresh, accurate incident and responder GPS fix, compatible capability, an active and available responder, and no active workload. The deterministic ranking uses straight-line distance, not an ETA. More dashboard setup detail is in [backend/README.md](backend/README.md).
 
 ## Use the User Portal
 
@@ -152,6 +153,15 @@ Incident submission persists first and runs the separate analysis task afterward
 - **Add update** records a message visible to the assigned user and admins. **Updates** shows the task history.
 - **Share current location once** requests foreground GPS permission, then sends one timestamped, accuracy-labelled point. It does not track in the background. The point is considered for recommendation ranking only while it remains fresh and accurate.
 - If an administrator reassigns a task, the previous responder immediately loses write access. Resolving a task releases its associated resource and makes the responder available again.
+- The notification bell opens a backend-persisted inbox. Assignment and meaningful status changes are recorded for the assigned responder, reporting user, and coordinators.
+
+## Notifications and automatic assignment
+
+Notification records are durable in-app events stored in the same database transaction as the related incident submission, assignment, reassignment, cancellation, or status transition. The mobile User and Responder portals and browser administrator dashboard display each authenticated account's inbox. Users cannot read or mark another account's notification. Events are deduplicated by recipient and event key. Clients continue using the existing 12-second refresh pattern.
+
+Push delivery (including FCM), email notification delivery, device tokens, and delivery-attempt tracking are not configured. The inbox does not imply a push or email was sent. FCM requires Firebase project configuration, Android client setup, server credentials stored only in hosting secrets, and device delivery verification.
+
+The Super Admin controls automatic assignment under **Automation policy**. It defaults off and has a configurable maximum incident severity (default 3/5). Assignment requires an accurate (≤100 m), fresh (≤15 minutes) GPS position for both incident and responder, matching skills, an active account, availability, and no active assignment. It ranks eligible candidates using the configured distance and recent workload weights with stable name tie-breaking; distance is straight-line and does not estimate route or travel time. Incidents above the severity limit or without a fully eligible GPS-backed candidate stay unassigned for coordinator review. Database active-assignment uniqueness constraints protect concurrent assignment requests. The admin dashboard labels automatic versus manual assignments. Manual assignment remains available and is audited. This academic demonstration rule is not operational dispatch guidance.
 
 ## Use the isolated training workspace
 
@@ -431,6 +441,7 @@ Detailed records:
 - [`docs/audit/architecture.md`](docs/audit/architecture.md) — design, data model, rules, and boundaries.
 - [`docs/audit/discovery.md`](docs/audit/discovery.md) — source inventory and target-directory decision.
 - [`docs/audit/test-results.md`](docs/audit/test-results.md) — executed checks, outcomes, evidence, and limits.
+- [`docs/audit/automation-notifications-followup-2026-10-24.md`](docs/audit/automation-notifications-followup-2026-10-24.md) — assignment policy, notification behavior, end-to-end evidence, and external blockers.
 - [`docs/UX_UI_AUDIT.md`](docs/UX_UI_AUDIT.md) and [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) — UX findings and shared mobile/web tokens.
 - [`docs/DEMO_ACCOUNTS.md`](docs/DEMO_ACCOUNTS.md) — safe local demo seed command and first-run credentials.
 - [`docs/CI_CD_AUDIT.md`](docs/CI_CD_AUDIT.md) — CI workflow scope and remote verification limits.
@@ -443,12 +454,12 @@ Detailed records:
 
 ## Latest release-readiness status
 
-As of 2026-10-24, `flutter analyze`, the 28 explicitly selected Flutter tests, all 19 backend tests, SQLite migration checks, and two SQLite concurrency tests pass. The Android debug APK builds from a clean APFS staging copy; the exFAT checkout itself contains AppleDouble metadata that breaks broad test discovery and Gradle resource scanning. PostgreSQL migration/concurrency behavior, accessibility conformance, and backup restoration have not been verified. The Android release build still uses debug signing, and login/refresh rate limiting is not implemented. This remains a development platform, not a production or emergency-dispatch service; see the [release-readiness report](docs/audit/release-readiness-2026-10-24.md) for evidence and blockers.
+As of 2026-10-24, verification results for the latest backend workflow (including in-app notification privacy and opt-in automatic assignment), Flutter analysis/tests, and SQLite migration are recorded in the final audit. PostgreSQL migration/concurrency behavior, accessibility conformance, and backup restoration have not been verified. The Android release build still uses debug signing, login/refresh rate limiting is not implemented, and external push/email are unconfigured. This remains a development platform, not a production or emergency-dispatch service; see the [release-readiness report](docs/audit/release-readiness-2026-10-24.md) for evidence and blockers.
 
 ## Known limitations
 
 - No backend is hosted by this repository. Shared portals need an operator-provisioned service URL and database; PostgreSQL/Compose were not available for integration testing in this environment.
-- No map provider, geocoding/routing/traffic, push notification provider, phone call, or external ambulance/fire/police integration is configured. Clients use 12-second polling and one-time foreground responder location sharing.
+- No map provider, geocoding/routing/traffic, push notification provider, email notification delivery, phone call, or external ambulance/fire/police integration is configured. Clients use 12-second polling and one-time foreground responder location sharing. Durable in-app notifications are available.
 - The isolated training responder selector is not authentication. Its simulated responders, resource inventory, and Mohali-area coordinates remain separate from server data.
 - Priority and proximity rankings are prototype decision support, not approved dispatch/triage policies.
 - The APK is demo-signed with a debug key. No production signing, hosting, rate-limit gateway, security penetration review, backup/restore validation, accessibility audit, or field validation has been completed.

@@ -938,6 +938,12 @@ class _UserPortalState extends State<UserPortal> {
       title: const Text('User Portal'),
       actions: [
         IconButton(
+          tooltip: 'Notifications',
+          onPressed: () =>
+              _openNotificationInbox(context, widget.api, widget.session),
+          icon: const Icon(Icons.notifications_outlined),
+        ),
+        IconButton(
           tooltip: 'Refresh requests',
           onPressed: refresh,
           icon: const Icon(Icons.refresh),
@@ -2616,6 +2622,12 @@ class _ResponderPortalState extends State<ResponderPortal> {
       title: const Text('Responder Portal'),
       actions: [
         IconButton(
+          tooltip: 'Notifications',
+          onPressed: () =>
+              _openNotificationInbox(context, widget.api, widget.session),
+          icon: const Icon(Icons.notifications_outlined),
+        ),
+        IconButton(
           tooltip: 'Share current location once',
           onPressed: shareLocationOnce,
           icon: const Icon(Icons.my_location),
@@ -3181,6 +3193,129 @@ Widget _detailLine(BuildContext context, String label, String? value) =>
         ],
       ),
     );
+
+Future<void> _openNotificationInbox(
+  BuildContext context,
+  ApiClient api,
+  ApiSession session,
+) => Navigator.of(context).push(
+  MaterialPageRoute<void>(
+    builder: (_) => NotificationInboxPage(api: api, session: session),
+  ),
+);
+
+class NotificationInboxPage extends StatefulWidget {
+  const NotificationInboxPage({
+    super.key,
+    required this.api,
+    required this.session,
+  });
+  final ApiClient api;
+  final ApiSession session;
+
+  @override
+  State<NotificationInboxPage> createState() => _NotificationInboxPageState();
+}
+
+class _NotificationInboxPageState extends State<NotificationInboxPage> {
+  List<dynamic> notifications = [];
+  bool loading = true;
+  String? error;
+
+  Future<void> refresh() async {
+    try {
+      final rows = await widget.api.getList('/notifications', widget.session);
+      if (mounted) {
+        setState(() {
+          notifications = rows;
+          loading = false;
+          error = null;
+        });
+      }
+    } catch (exception) {
+      if (mounted) {
+        setState(() {
+          loading = false;
+          error = exception.toString();
+        });
+      }
+    }
+  }
+
+  Future<void> markRead(String id) async {
+    try {
+      await widget.api.patch('/notifications/$id/read', widget.session);
+      await refresh();
+    } catch (exception) {
+      if (mounted) setState(() => error = exception.toString());
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const Text('Notifications'),
+      actions: [
+        TextButton(
+          onPressed: notifications.any((item) => item['read'] != true)
+              ? () async {
+                  try {
+                    await widget.api.patch(
+                      '/notifications/read-all',
+                      widget.session,
+                    );
+                    await refresh();
+                  } catch (exception) {
+                    if (mounted) setState(() => error = exception.toString());
+                  }
+                }
+              : null,
+          child: const Text('Mark all read'),
+        ),
+      ],
+    ),
+    body: loading
+        ? const Center(child: CircularProgressIndicator())
+        : error != null
+        ? Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(error!, textAlign: TextAlign.center),
+            ),
+          )
+        : notifications.isEmpty
+        ? const Center(child: Text('You are all caught up.'))
+        : ListView.separated(
+            itemCount: notifications.length,
+            separatorBuilder: (_, _) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final item = Map<String, dynamic>.from(
+                notifications[index] as Map,
+              );
+              final read = item['read'] == true;
+              return ListTile(
+                leading: Icon(
+                  read
+                      ? Icons.notifications_none
+                      : Icons.notifications_active_outlined,
+                ),
+                title: Text(item['title']?.toString() ?? 'Update'),
+                subtitle: Text(
+                  '${item['message'] ?? ''}\n${item['created_at'] ?? ''}',
+                ),
+                isThreeLine: true,
+                onTap: read ? null : () => markRead(item['id'].toString()),
+              );
+            },
+          ),
+  );
+}
 
 class _StatusChip extends StatelessWidget {
   const _StatusChip(this.value);

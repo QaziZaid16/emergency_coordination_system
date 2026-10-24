@@ -9,13 +9,38 @@ Flutter (Admin / User / Responder portals; isolated training mode)
                   │ HTTPS bearer access token + idempotency key
                   │ rotating refresh token only when Remember Me is selected
                   ▼
-FastAPI (validation, role/ownership checks, refresh rotation, assignments, audit)
+FastAPI (validation, role/ownership checks, refresh rotation, assignments, notifications, audit)
                   │ SQLAlchemy transaction
                   ▼
 PostgreSQL for deployment / SQLite for local development and tests
 ```
 
-The repository contains the runnable API and role-specific workflows but no hosted service, verified agency integration, push delivery, or production deployment. Deployment must provide TLS, managed PostgreSQL, secure environment secrets, backups, monitoring, retention and incident-response policy. The client polls authorized updates every 12 seconds.
+Incident intake records coordinator and reporter in-app events transactionally. If the Super Admin enabled automatic assignment, the same transaction checks the severity policy, fresh accurate incident/responder GPS, skill match, account/availability, and active-assignment constraints; then records the assignment, status history, audit decision, and recipient events together. The persistent notification inbox is recipient-scoped and deduplicated per account and event key. Notification events are in-app records only; there is no remote push/email delivery worker.
+
+```mermaid
+sequenceDiagram
+    participant U as User app
+    participant API as FastAPI
+    participant DB as Shared database
+    participant E as Assignment policy
+    participant R as Responder app
+    participant C as Coordinator dashboard
+    U->>API: Submit incident + idempotency key
+    API->>DB: Validate and persist incident/history
+    API->>DB: Persist reporter and coordinator inbox events
+    opt Policy enabled and severity within threshold
+        API->>E: Check GPS freshness, skill, availability, workload
+        E->>DB: Create assignment + audit + history + inbox events atomically
+        DB-->>R: Assignment inbox event available
+    end
+    API-->>U: Authoritative incident status
+    R->>API: Ordered status transition
+    API->>DB: Persist status, history, audit and recipient notifications
+    U->>API: Poll authorized incident/inbox
+    C->>API: Poll overview/inbox every 12 seconds while visible
+```
+
+The repository contains the runnable API and role-specific workflows but no hosted service, verified agency integration, push delivery, or production deployment. Deployment must provide TLS, managed PostgreSQL, secure environment secrets, backups, monitoring, retention and incident-response policy. Mobile portals poll authorized data every 12 seconds. The browser dashboard refreshes its overview and notification inbox every 12 seconds while visible, and other pages on navigation or manual refresh.
 
 ## Authentication and session decisions
 
@@ -45,7 +70,7 @@ The repository contains the runnable API and role-specific workflows but no host
 ## Rules and data boundaries
 
 - Priority uses the explicit policy in `lib/domain/dispatch_rules.dart`; rationale is visible. It is decision support only.
-- Eligible responders are available, skill-compatible and unassigned. Recommendations show straight-line distance only when incident and responder locations are fresh and accurate; the human admin confirms assignment.
+- Eligible responders are available, skill-compatible and unassigned. Recommendations show straight-line distance only when incident and responder locations are fresh and accurate. Manual assignment remains the default. The optional automatic policy (off by default, Super Admin controlled) only considers severity at or below its configured ceiling and requires fresh accurate GPS for both ends. It deterministically orders eligible candidates using configured distance/workload weights and stable name tie-breaking. Location failure, no candidate, over-limit severity, or DB uniqueness conflict leaves the request in human review.
 - The shared User portal captures foreground GPS and supports manual location fallback. The Responder portal can share one foreground location point. There is no background tracking, map routing or ETA.
 - Training mode uses simulated coordinates and a single app-private JSON file via Android MethodChannel. Shared records remain server-owned.
 
@@ -55,4 +80,4 @@ Material 3 tokens in `lib/presentation/design_system.dart` define the reference-
 
 ## Remaining limits
 
-This repository is a development implementation, not an emergency dispatch service. A real deployment still needs HTTPS, managed PostgreSQL, rate limits, password recovery/MFA decisions, monitoring, backups/restore drills, privacy and retention policy, penetration testing, accessibility review, and approved operational procedures. No ambulance/fire/police integration, push provider or map service is included. Training examples and the priority heuristic are not validated operational data or policy.
+This repository is a development implementation, not an emergency dispatch service. A real deployment still needs HTTPS, managed PostgreSQL, rate limits, password recovery/MFA decisions, monitoring, backups/restore drills, privacy and retention policy, penetration testing, accessibility review, and approved operational procedures. No ambulance/fire/police integration, push or notification email provider, or map service is included. Training examples and the priority heuristic are not validated operational data or policy.
