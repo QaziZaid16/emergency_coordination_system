@@ -98,6 +98,7 @@ class Incident(Base):
     priority: Mapped[str] = mapped_column(String(16), index=True)
     priority_reason: Mapped[str] = mapped_column(String(240))
     status: Mapped[str] = mapped_column(String(24), default="Submitted", index=True)
+    intake_data: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, index=True
@@ -195,9 +196,27 @@ class IncidentUpdate(Base):
     actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     kind: Mapped[str] = mapped_column(String(24))
     message: Mapped[str] = mapped_column(String(1000))
+    original_message: Mapped[str | None] = mapped_column(String(1000))
+    ai_assisted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, index=True
     )
+
+
+class IncidentReport(Base):
+    __tablename__ = "incident_reports"
+    __table_args__ = (UniqueConstraint("incident_id", "version", name="uq_incident_report_version"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    incident_id: Mapped[str] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(16), default="generated", index=True)
+    content: Mapped[dict] = mapped_column(JSON, nullable=False)
+    source_records: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    generated_by: Mapped[str] = mapped_column(String(32), default="evidence_template")
+    reviewed_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_note: Mapped[str | None] = mapped_column(String(1000))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
 class Notification(Base):

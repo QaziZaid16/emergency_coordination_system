@@ -18,9 +18,9 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
 from app.dispatch import distance_km, priority_for
-from app.models import AccountInvitation, Assignment, AuditEvent, AuthSession, CoordinationPolicy, Incident, IncidentAnalysis, IncidentUpdate, Notification, ResponderProfile, Resource, User, now_utc
-from app.schemas import AssignmentCreate, AutomaticAssignmentPolicyUpdate, AvailabilityUpdate, CoAdminCreate, CopilotQuestion, IncidentCreate, InvitationAccept, LoginRequest, LoginResponse, MessageCreate, RefreshRequest, ResponderInviteCreate, ResponderLocation, ResourceCreate, StatusUpdate, UserCreate, UserRegister, UserView
-from app.intelligence import analyze_incident_task, find_duplicate_candidates
+from app.models import AccountInvitation, Assignment, AuditEvent, AuthSession, CoordinationPolicy, Incident, IncidentAnalysis, IncidentReport, IncidentUpdate, Notification, ResponderProfile, Resource, User, now_utc
+from app.schemas import AssignmentCreate, AutomaticAssignmentPolicyUpdate, AvailabilityUpdate, CoAdminCreate, CopilotQuestion, IncidentCreate, IntakeAnswers, InvitationAccept, LoginRequest, LoginResponse, MessageCreate, RefreshRequest, ReportReview, ResponderInviteCreate, ResponderLocation, ResourceCreate, RewriteRequest, StatusUpdate, UserCreate, UserRegister, UserView
+from app.intelligence import analyze_incident_task, find_duplicate_candidates, rewrite_responder_note
 from app.security import bearer, current_user, encode_access_token, hash_password, hash_refresh_token, issue_token, require_roles, verify_password
 
 router = APIRouter()
@@ -190,6 +190,7 @@ def incident_view(db: Session, incident: Incident, include_analysis: bool = True
         "resource_name": resource.name if resource else None,
         "created_at": incident.created_at,
         "updated_at": incident.updated_at,
+        "intake_data": incident.intake_data or {},
     }
     if include_analysis:
         analysis = db.get(IncidentAnalysis, incident.id)
@@ -210,6 +211,8 @@ def require_incident_scope(db: Session, user: User, incident_id: str) -> Inciden
     incident = db.get(Incident, incident_id)
     if not incident:
         raise HTTPException(404, "Incident not found")
+    if user.role == "admin" and "view_incidents" not in (user.permissions or []):
+        raise HTTPException(404, "Incident not found")
     if user.role == "user" and incident.reporter_id != user.id:
         raise HTTPException(404, "Incident not found")
     if user.role == "responder":
@@ -221,6 +224,38 @@ def require_incident_scope(db: Session, user: User, incident_id: str) -> Inciden
         if not assignment:
             raise HTTPException(404, "Incident not found")
     return incident
+
+
+def create_resolution_report(db: Session, incident: Incident) -> IncidentReport:
+    existing = db.scalar(select(IncidentReport).where(IncidentReport.incident_id == incident.id).order_by(IncidentReport.version.desc()))
+    if existing:
+        return existing
+    updates = db.scalars(select(IncidentUpdate).where(IncidentUpdate.incident_id == incident.id).order_by(IncidentUpdate.created_at)).all()
+    assignments = db.scalars(select(Assignment).where(Assignment.incident_id == incident.id).order_by(Assignment.assigned_at)).all()
+    sources = [{"type": "incident", "id": incident.id, "created_at": incident.created_at.isoformat()}]
+    timeline = [{"at": row.created_at.isoformat(), "source": row.kind, "actor_id": row.actor_id, "detail": row.message} for row in updates]
+    for row in assignments:
+        timeline.append({"at": row.assigned_at.isoformat(), "source": "assignment", "actor_id": row.assigned_by or "system", "detail": f"Assignment recorded with status {row.status}; source {row.assignment_source}."})
+        sources.append({"type": "assignment", "id": row.id})
+    sources.extend({"type": "incident_update", "id": row.id} for row in updates)
+    timeline.sort(key=lambda item: item["at"])
+    actions = [row.message for row in updates if row.kind in ("message", "status")]
+    content = {
+        "incident_overview": {"incident_id": incident.id, "reference": incident.reference, "category": incident.emergency_type, "reported_at": incident.created_at.isoformat(), "location": incident.location_label, "original_description": incident.description, "priority": incident.priority, "status": incident.status},
+        "what_happened": "Summary of persisted user report and responder observations; no independent verification performed.",
+        "response_timeline": timeline,
+        "actions_taken": actions,
+        "outcome": f"Stored incident status is {incident.status}. No further outcome is inferred.",
+        "cause": "Cause not established from the available information.",
+        "follow_up_recommendations": [],
+        "evidence_and_limitations": {"source_record_ids": [item.get("id") for item in sources], "limitations": ["This is an evidence-based summary of application records, not an independent investigation.", "Cause and outcomes are not independently verified."]},
+        "report_metadata": {"version": 1, "generated_at": now_utc().isoformat(), "reviewed": False},
+    }
+    report = IncidentReport(incident_id=incident.id, version=1, status="generated", content=content, source_records=sources, generated_by="evidence_template")
+    db.add(report)
+    notify(db, incident.reporter_id, f"incident:{incident.id}:report:1", "incident_report", "Resolution report available", f"A report for incident {incident.reference} is available in your account.", incident.id)
+    notify_coordinators(db, f"incident:{incident.id}:report:1", "incident_report", "Resolution report generated", f"A report for incident {incident.reference} is ready for review.", incident.id)
+    return report
 
 
 @router.post("/auth/login", response_model=LoginResponse)
@@ -455,6 +490,8 @@ def list_incidents(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
+    if user.role == "admin" and "view_incidents" not in (user.permissions or []):
+        raise HTTPException(403, "Missing permission: view_incidents")
     statement = select(Incident).order_by(Incident.created_at.desc())
     if user.role == "user":
         statement = statement.where(Incident.reporter_id == user.id)
@@ -481,7 +518,63 @@ def get_incident(incident_id: str, user: User = Depends(current_user), db: Sessi
 def get_updates(incident_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     incident = require_incident_scope(db, user, incident_id)
     rows = db.scalars(select(IncidentUpdate).where(IncidentUpdate.incident_id == incident.id).order_by(IncidentUpdate.created_at)).all()
-    return [{"id": row.id, "kind": row.kind, "message": row.message, "actor_id": row.actor_id, "created_at": row.created_at} for row in rows]
+    return [{"id": row.id, "kind": row.kind, "message": row.message, "original_message": row.original_message, "ai_assisted": row.ai_assisted, "actor_id": row.actor_id, "created_at": row.created_at} for row in rows]
+
+
+@router.get("/incidents/{incident_id}/intake")
+def get_incident_intake(incident_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    incident = require_incident_scope(db, user, incident_id)
+    stored = incident.intake_data or {}
+    category = incident.emergency_type.casefold()
+    if "fire" in category:
+        candidates = [("people_at_risk", "Is anyone injured or trapped?"), ("spread", "Is the fire or smoke spreading?"), ("area", "What area is affected, if known?"), ("hazards", "Are there other immediate hazards, if known?")]
+    elif "medical" in category or "ambulance" in category:
+        candidates = [("injuries", "What injuries or symptoms are visible, if known?"), ("people_at_risk", "How many people need help, if known?"), ("hazards", "Is it safe for responders to approach?")]
+    elif "police" in category or "security" in category:
+        candidates = [("threat", "Is there an immediate threat to anyone?"), ("people_at_risk", "Is anyone injured or trapped?"), ("hazards", "Are there hazards responders should know about?")]
+    else:
+        candidates = [("people_at_risk", "Is anyone injured or trapped?"), ("hazards", "Are there immediate hazards responders should know about?"), ("details", "What additional detail may help responders?")]
+    report_text = (incident.description + " " + incident.location_label).casefold()
+    described = {
+        "people_at_risk": any(term in report_text for term in ("injur", "trapped", "casualt", "no one", "nobody")),
+        "spread": any(term in report_text for term in ("spreading", "not spreading", "contained")),
+        "area": any(term in report_text for term in ("room", "building", "vehicle", "outdoor", "floor", "kitchen", "warehouse")),
+        "hazards": any(term in report_text for term in ("hazard", "gas leak", "chemical", "fuel", "cylinder", "live wire", "weapon")),
+        "injuries": any(term in report_text for term in ("injur", "pain", "bleeding", "unconscious")),
+        "threat": any(term in report_text for term in ("threat", "attack", "weapon", "gun")),
+    }
+    questions = [{"key": key, "question": question} for key, question in candidates if key not in stored and not described.get(key, False)]
+    analysis = db.get(IncidentAnalysis, incident.id)
+    suggested = (analysis.result or {}).get("missing_information", []) if analysis and analysis.result else []
+    return {"incident_id": incident.id, "answers": stored, "questions": questions[:3], "ai_missing_information": suggested[:3], "dispatch_status": incident.status, "answers_optional": True}
+
+
+@router.post("/incidents/{incident_id}/intake/answers", status_code=201)
+def submit_intake_answers(incident_id: str, body: IntakeAnswers, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    incident = require_incident_scope(db, user, incident_id)
+    allowed = {"people_at_risk", "spread", "area", "hazards", "injuries", "threat", "details"}
+    if set(body.answers) - allowed:
+        raise HTTPException(422, "Unsupported intake answer field")
+    data = dict(incident.intake_data or {})
+    normalized = {key: (value.strip() if value and value.strip().casefold() not in ("unknown", "skip", "skipped") else None) for key, value in body.answers.items()}
+    data.update(normalized)
+    incident.intake_data = data
+    summary = "; ".join(f"{key.replace('_', ' ')}: {value if value is not None else 'unknown/not provided'}" for key, value in normalized.items())
+    db.add(IncidentUpdate(incident_id=incident.id, actor_id=user.id, kind="intake_answer", message=f"Follow-up answers recorded (user-reported): {summary}"[:1000]))
+    audit(db, user, "incident.intake_answered", "incident", incident.id, {"fields": sorted(normalized)})
+    db.commit()
+    return {"incident_id": incident.id, "answers": incident.intake_data, "dispatch_status": incident.status}
+
+
+@router.post("/responder/incidents/{incident_id}/rewrite")
+async def rewrite_update(incident_id: str, body: RewriteRequest, responder: User = Depends(require_roles("responder")), db: Session = Depends(get_db)):
+    incident = require_incident_scope(db, responder, incident_id)
+    if incident.status in ("Resolved", "Cancelled") or not db.scalar(select(Assignment.id).where(Assignment.incident_id == incident.id, Assignment.responder_id == responder.id, Assignment.status.in_(ACTIVE_ASSIGNMENTS))):
+        raise HTTPException(409, "Only the currently assigned responder can draft an update")
+    draft, outcome = await rewrite_responder_note(body.note)
+    audit(db, responder, "incident.note_rewrite_requested", "incident", incident.id, {"outcome": outcome})
+    db.commit()
+    return {"original": body.note.strip(), "suggestion": draft, "outcome": outcome, "requires_responder_review": True}
 
 
 @router.post("/incidents/{incident_id}/updates", status_code=201)
@@ -495,11 +588,36 @@ def add_update(incident_id: str, body: MessageCreate, user: User = Depends(curre
         raise HTTPException(409, "Only the currently assigned responder can add operational updates")
     if user.role == "user" and incident.status in ("Resolved", "Cancelled"):
         raise HTTPException(409, "Closed incidents cannot receive updates")
-    row = IncidentUpdate(incident_id=incident.id, actor_id=user.id, kind="message", message=body.message.strip())
+    if body.ai_assisted and (user.role != "responder" or not body.original_message):
+        raise HTTPException(422, "AI-assisted updates require the responder's original note")
+    row = IncidentUpdate(incident_id=incident.id, actor_id=user.id, kind="message", message=body.message.strip(), original_message=body.original_message.strip() if body.original_message else None, ai_assisted=body.ai_assisted)
     db.add(row)
     audit(db, user, "incident.message", "incident", incident.id)
     db.commit()
     return {"id": row.id, "kind": row.kind, "message": row.message, "created_at": row.created_at}
+
+
+@router.get("/incidents/{incident_id}/report")
+def get_incident_report(incident_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    incident = require_incident_scope(db, user, incident_id)
+    report = db.scalar(select(IncidentReport).where(IncidentReport.incident_id == incident.id).order_by(IncidentReport.version.desc()))
+    if report is None:
+        raise HTTPException(404, "No resolution report is available")
+    return {"id": report.id, "incident_id": report.incident_id, "version": report.version, "status": report.status, "content": report.content, "source_records": report.source_records, "generated_by": report.generated_by, "reviewed_by": report.reviewed_by, "reviewed_at": report.reviewed_at, "review_note": report.review_note, "created_at": report.created_at}
+
+
+@router.post("/admin/incidents/{incident_id}/report/review")
+def review_incident_report(incident_id: str, body: ReportReview, admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
+    if admin.role == "admin" and "update_incidents" not in (admin.permissions or []):
+        raise HTTPException(403, "Missing permission: update_incidents")
+    incident = db.get(Incident, incident_id)
+    report = db.scalar(select(IncidentReport).where(IncidentReport.incident_id == incident_id).order_by(IncidentReport.version.desc()))
+    if not incident or not report:
+        raise HTTPException(404, "Incident report not found")
+    report.status, report.reviewed_by, report.reviewed_at, report.review_note = "reviewed", admin.id, now_utc(), body.note.strip()
+    audit(db, admin, "incident.report_reviewed", "incident_report", report.id, {"version": report.version})
+    db.commit()
+    return {"id": report.id, "version": report.version, "status": report.status, "reviewed_at": report.reviewed_at}
 
 
 @router.get("/admin/dashboard")
@@ -1264,6 +1382,7 @@ def admin_resolve_incident(incident_id: str, admin: User = Depends(require_roles
     if assignment:
         notify(db, assignment.responder_id, "incident:" + incident.id + ":resolved:" + assignment.responder_id, "incident_status", "Incident resolved", f"Incident {incident.reference} was marked resolved.", incident.id)
     notify_status_change(db, incident, "Resolved")
+    create_resolution_report(db, incident)
     db.commit()
     return incident_view(db, incident)
 
@@ -1292,6 +1411,8 @@ def update_status(incident_id: str, body: StatusUpdate, responder: User = Depend
     audit(db, responder, "incident.status_changed", "incident", incident.id, {"status": body.status})
     notify_status_change(db, incident, body.status)
     notify_coordinators(db, "incident:" + incident.id + ":status:" + body.status, "incident_status", "Incident status changed", f"Incident {incident.reference} is now {body.status}.", incident.id)
+    if body.status == "Resolved":
+        create_resolution_report(db, incident)
     db.commit()
     return incident_view(db, incident)
 

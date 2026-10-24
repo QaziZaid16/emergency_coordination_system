@@ -916,11 +916,91 @@ class _UserPortalState extends State<UserPortal> {
         position = null;
         idempotencyKey = null;
       });
+      await _offerIntakeFollowups(data['id'].toString());
       await refresh();
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
     } finally {
       if (mounted) setState(() => submitting = false);
+    }
+  }
+
+  Future<void> _offerIntakeFollowups(String incidentId) async {
+    final controllers = <String, TextEditingController>{};
+    try {
+      final intake = await widget.api.get(
+        '/incidents/$incidentId/intake',
+        widget.session,
+      );
+      final questions = (intake['questions'] as List? ?? const [])
+          .take(3)
+          .toList();
+      if (questions.isEmpty || !mounted) return;
+      for (final raw in questions) {
+        final item = Map<String, dynamic>.from(raw as Map);
+        controllers[item['key'].toString()] = TextEditingController();
+      }
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Optional details for responders'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Your request is already submitted. You can skip any question or enter “unknown”.',
+                ),
+                const SizedBox(height: 12),
+                for (final raw in questions)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: TextField(
+                      controller: controllers[(raw as Map)['key'].toString()],
+                      maxLength: 500,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: raw['question'] as String,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Skip'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Save details'),
+            ),
+          ],
+        ),
+      );
+      if (accepted == true && mounted) {
+        await widget.api.post(
+          '/incidents/$incidentId/intake/answers',
+          widget.session,
+          body: {
+            'answers': controllers.map(
+              (key, value) => MapEntry(
+                key,
+                value.text.trim().isEmpty ? 'unknown' : value.text.trim(),
+              ),
+            ),
+          },
+        );
+      }
+      for (final controller in controllers.values) {
+        controller.dispose();
+      }
+    } catch (_) {
+      // Follow-up collection is optional; it must not undo a persisted request.
+      for (final controller in controllers.values) {
+        controller.dispose();
+      }
     }
   }
 
@@ -1178,8 +1258,12 @@ Future<void> _showUpdates(
   ApiSession session,
 ) async {
   List<dynamic> rows = [];
+  Map<String, dynamic>? report;
   try {
     rows = await api.getList('/incidents/${item['id']}/updates', session);
+  } catch (_) {}
+  try {
+    report = await api.get('/incidents/${item['id']}/report', session);
   } catch (_) {}
   if (!context.mounted) return;
   showModalBottomSheet(
@@ -1196,13 +1280,34 @@ Future<void> _showUpdates(
           ),
           const SizedBox(height: 8),
           Text('${item['priority']} · ${item['status']}'),
+          if (report != null) ...[
+            const Divider(height: 24),
+            Text(
+              'Resolution report · version ${report['version']}',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text('Outcome: ${(report['content'] as Map)['outcome']}'),
+            Text('Cause: ${(report['content'] as Map)['cause']}'),
+            const Text(
+              'System-generated from persisted incident records; not an independent investigation.',
+            ),
+          ],
           const Divider(height: 24),
           if (rows.isEmpty) const Text('No updates are recorded yet.'),
           for (final row in rows)
             ListTile(
               leading: const Icon(Icons.history),
               title: Text(row['message'].toString()),
-              subtitle: Text(row['created_at'].toString()),
+              subtitle: Text(
+                [
+                  if (row['original_message'] != null)
+                    'Original: ${row['original_message']}',
+                  if (row['ai_assisted'] == true)
+                    'AI-assisted · responder accepted',
+                  row['created_at'].toString(),
+                ].join('\n'),
+              ),
             ),
         ],
       ),
@@ -2564,7 +2669,7 @@ class _ResponderPortalState extends State<ResponderPortal> {
 
   Future<void> addOperationalUpdate(Map<String, dynamic> task) async {
     final controller = TextEditingController();
-    final value = await showDialog<String>(
+    final choice = await showDialog<(String, bool)>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Add operational update'),
@@ -2581,20 +2686,77 @@ class _ResponderPortalState extends State<ResponderPortal> {
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
           ),
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(context, (controller.text.trim(), true)),
+            child: const Text('Improve with AI'),
+          ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            onPressed: () =>
+                Navigator.pop(context, (controller.text.trim(), false)),
             child: const Text('Send update'),
           ),
         ],
       ),
     );
     controller.dispose();
-    if (value == null || value.isEmpty) return;
+    if (choice == null || choice.$1.isEmpty) return;
     try {
+      var value = choice.$1;
+      var originalMessage = '';
+      var aiAssisted = false;
+      if (choice.$2) {
+        final result = await widget.api.post(
+          '/responder/incidents/${task['id']}/rewrite',
+          widget.session,
+          body: {'note': value},
+        );
+        originalMessage = value;
+        final suggestionController = TextEditingController(
+          text: result['suggestion'] as String? ?? value,
+        );
+        if (!mounted) {
+          suggestionController.dispose();
+          return;
+        }
+        final accepted = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Review suggested update'),
+            content: TextField(
+              controller: suggestionController,
+              maxLines: 4,
+              maxLength: 1000,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Reject'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Use this text'),
+              ),
+            ],
+          ),
+        );
+        if (accepted != true) {
+          suggestionController.dispose();
+          return;
+        }
+        value = suggestionController.text.trim();
+        suggestionController.dispose();
+        if (value.isEmpty) return;
+        aiAssisted = result['outcome'] == 'validated_draft';
+      }
       await widget.api.post(
         '/incidents/${task['id']}/updates',
         widget.session,
-        body: {'message': value},
+        body: {
+          'message': value,
+          if (aiAssisted) 'original_message': originalMessage,
+          'ai_assisted': aiAssisted,
+        },
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

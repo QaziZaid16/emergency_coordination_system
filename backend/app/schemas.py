@@ -121,6 +121,26 @@ class StatusUpdate(BaseModel):
 
 class MessageCreate(BaseModel):
     message: str = Field(min_length=1, max_length=1000)
+    original_message: str | None = Field(default=None, max_length=1000)
+    ai_assisted: bool = False
+
+
+class IntakeAnswers(BaseModel):
+    answers: dict[str, str | None] = Field(max_length=12)
+
+    @model_validator(mode="after")
+    def validate_answers(self):
+        if any(len(key) > 64 or (value is not None and len(value) > 500) for key, value in self.answers.items()):
+            raise ValueError("Intake answer is too long")
+        return self
+
+
+class RewriteRequest(BaseModel):
+    note: str = Field(min_length=1, max_length=1000)
+
+
+class ReportReview(BaseModel):
+    note: str = Field(min_length=1, max_length=1000)
 
 
 class ResourceCreate(BaseModel):
