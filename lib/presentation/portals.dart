@@ -39,13 +39,9 @@ class CoordinationBrandMark extends StatelessWidget {
 }
 
 class PortalEntryPage extends StatefulWidget {
-  const PortalEntryPage({
-    super.key,
-    required this.api,
-    required this.trainingStore,
-  });
+  const PortalEntryPage({super.key, required this.api, this.trainingStore});
   final ApiClient api;
-  final OperationsStore trainingStore;
+  final OperationsStore? trainingStore;
   @override
   State<PortalEntryPage> createState() => _PortalEntryPageState();
 }
