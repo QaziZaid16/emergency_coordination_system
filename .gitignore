@@ -30,5 +30,8 @@ android/*.iml
 *.ipr
 *.iws
 
+# Project-local isolated Python environment
+.venv-internal/
+
 # Local editor configuration
 .vscode/

@@ -6,6 +6,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.config import get_settings
 from app.database import Base
+from app.migration_lock import acquire_alembic_migration_lock
 from app import models  # noqa: F401
 
 # macOS external volumes can leave AppleDouble sidecars beside Python files.
@@ -40,6 +41,10 @@ def run_migrations_online():
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
         with context.begin_transaction():
+            # PostgreSQL's outer Alembic transaction remains active through
+            # run_migrations() with the default transaction_per_migration=False.
+            # Acquire before Alembic reads the database's current revision.
+            acquire_alembic_migration_lock(connection)
             context.run_migrations()
 
 

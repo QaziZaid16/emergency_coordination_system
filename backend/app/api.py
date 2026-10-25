@@ -1138,6 +1138,7 @@ def retry_incident_analysis(
     analysis.provider = "pending"
     analysis.validation_outcome = "retry_requested"
     analysis.attempt_count = 0
+    analysis.claim_token = None
     analysis.last_attempt_at = None
     analysis.last_error_type = None
     analysis.completed_at = None

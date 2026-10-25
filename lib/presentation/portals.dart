@@ -504,7 +504,9 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
   Future<void> submit() async {
     if (!widget.api.configured) {
       setState(
-        () => error = 'Sign-in is temporarily unavailable. Please contact your service administrator.',
+        () => error = registering
+            ? 'Account creation is unavailable because this app is not connected to the coordination service. Please contact your service administrator.'
+            : 'Sign-in is unavailable because this app is not connected to the coordination service. Please contact your service administrator.',
       );
       return;
     }

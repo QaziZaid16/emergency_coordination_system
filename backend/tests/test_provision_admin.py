@@ -1,9 +1,15 @@
+import os
+
 import pytest
 from sqlalchemy import select
 
 from app.database import SessionLocal
 from app.models import User
-from app.provision_admin import provision_super_admin
+from app.provision_admin import (
+    provision_super_admin,
+    validate_generated_credentials_target,
+    write_credentials_file,
+)
 from app.security import verify_password
 
 
@@ -36,6 +42,11 @@ def test_bootstrap_account_authenticates_with_super_admin_role(client):
     )
     assert response.status_code == 200
     assert response.json()["user"]["role"] == "super_admin"
+    invalid = client.post(
+        "/api/v1/auth/login",
+        json={"email": "first.admin@example.com", "password": "Incorrect-Horse-5678"},
+    )
+    assert invalid.status_code == 401
 
 
 def test_bootstrap_rejects_short_password(client):
@@ -47,3 +58,28 @@ def test_bootstrap_rejects_short_password(client):
                 display_name="Short Password",
                 password="short",
             )
+
+
+def test_generated_credentials_file_is_private_and_never_overwritten(tmp_path):
+    path = tmp_path / "initial-admin.txt"
+    write_credentials_file(
+        path,
+        email="Admin@example.org",
+        password="one-time-test-password",
+    )
+
+    assert path.read_text() == (
+        "email=admin@example.org\npassword=one-time-test-password\n"
+    )
+    assert os.stat(path).st_mode & 0o777 == 0o600
+    with pytest.raises(FileExistsError):
+        write_credentials_file(path, email="other@example.org", password="replacement")
+    assert "replacement" not in path.read_text()
+
+
+def test_generated_credentials_are_limited_to_development_sqlite():
+    validate_generated_credentials_target("development", "sqlite:///./local.db")
+    with pytest.raises(SystemExit, match="development SQLite"):
+        validate_generated_credentials_target("production", "postgresql+psycopg://db")
+    with pytest.raises(SystemExit, match="development SQLite"):
+        validate_generated_credentials_target("development", "postgresql+psycopg://db")

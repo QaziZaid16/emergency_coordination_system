@@ -428,7 +428,7 @@ class ApiClient {
   }) async {
     if (!configured) {
       throw const ApiException(
-        'Sign-in is temporarily unavailable. Please contact your service administrator.',
+        'The coordination service is not configured for this app. Please contact your service administrator.',
       );
     }
     if (session != null && path != '/auth/refresh' && path != '/auth/me') {

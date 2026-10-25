@@ -10,6 +10,8 @@ import inspect
 import json
 import logging
 import re
+import socket
+import ssl
 from threading import Lock
 import time
 from collections.abc import Awaitable
@@ -17,6 +19,7 @@ from typing import Literal, Protocol
 from urllib.parse import urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from uuid import uuid4
 
 import httpx
 
@@ -31,6 +34,131 @@ from app.dispatch import distance_km
 logger = logging.getLogger("ecs.intelligence")
 _rate_lock = Lock()
 _provider_call_times: deque[float] = deque()
+
+
+_SAFE_PROVIDER_DIAGNOSTIC_CATEGORIES = {
+    "ProviderTimeout",
+    "ProviderConnectTimeout",
+    "ProviderReadTimeout",
+    "ProviderWriteTimeout",
+    "ProviderPoolTimeout",
+    "ProviderTLSFailure",
+    "ProviderProxyError",
+    "ProviderDNSResolutionError",
+    "ProviderTCPConnectionError",
+    "ProviderConnectionError",
+    "ProviderTransportError",
+    "ProviderHTTPStatusError",
+    "ProviderTransientError",
+    "ProviderMalformedResponse",
+    "ProviderErrorPayload",
+}
+_SAFE_PROVIDER_EXCEPTION_TYPES = {
+    "ConnectError",
+    "NetworkError",
+    "ReadError",
+    "WriteError",
+    "CloseError",
+    "ConnectTimeout",
+    "ReadTimeout",
+    "WriteTimeout",
+    "PoolTimeout",
+    "ProxyError",
+    "SSLCertVerificationError",
+    "SSLError",
+    "gaierror",
+    "ConnectionRefusedError",
+    "ConnectionResetError",
+    "ConnectionAbortedError",
+    "TimeoutError",
+    "OSError",
+    "ProviderTransientError",
+    "JSONDecodeError",
+    "ValueError",
+    "TypeError",
+    "KeyError",
+    "IndexError",
+}
+
+
+def _exception_chain(error: BaseException) -> tuple[BaseException, ...]:
+    chain: list[BaseException] = []
+    seen: set[int] = set()
+    pending = [error]
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        chain.append(current)
+        if current.__cause__ is not None:
+            pending.append(current.__cause__)
+        if current.__context__ is not None:
+            pending.append(current.__context__)
+    return tuple(chain)
+
+
+def _safe_exception_type_names(error: BaseException) -> tuple[str, ...]:
+    names = []
+    for item in _exception_chain(error):
+        name = type(item).__name__
+        if name in _SAFE_PROVIDER_EXCEPTION_TYPES and name not in names:
+            names.append(name)
+    return tuple(names)
+
+
+def _provider_error(
+    error_type: type[Exception],
+    message: str,
+    category: str,
+    cause: BaseException | None = None,
+    **metadata,
+):
+    """Create an unchanged public exception with safe, structured diagnostics."""
+    error = error_type(message)
+    error.diagnostic_category = category
+    error.diagnostic_exception_types = (
+        _safe_exception_type_names(cause) if cause is not None else ()
+    )
+    for name, value in metadata.items():
+        if name == "status_code" and isinstance(value, int) and 100 <= value <= 599:
+            error.status_code = value
+    return error
+
+
+def _request_error_category(error: httpx.RequestError) -> str:
+    chain = _exception_chain(error)
+    if any(isinstance(item, ssl.SSLError) for item in chain):
+        return "ProviderTLSFailure"
+    if isinstance(error, httpx.ProxyError):
+        return "ProviderProxyError"
+    if isinstance(error, httpx.ConnectError):
+        if any(isinstance(item, socket.gaierror) for item in chain):
+            return "ProviderDNSResolutionError"
+        if any(
+            isinstance(
+                item,
+                (ConnectionRefusedError, ConnectionResetError, ConnectionAbortedError),
+            )
+            for item in chain
+        ):
+            return "ProviderTCPConnectionError"
+        return "ProviderConnectionError"
+    if isinstance(error, httpx.NetworkError):
+        return "ProviderConnectionError"
+    return "ProviderTransportError"
+
+
+def _timeout_error_category(error: httpx.TimeoutException) -> str:
+    if isinstance(error, httpx.ConnectTimeout):
+        return "ProviderConnectTimeout"
+    if isinstance(error, httpx.ReadTimeout):
+        return "ProviderReadTimeout"
+    if isinstance(error, httpx.WriteTimeout):
+        return "ProviderWriteTimeout"
+    if isinstance(error, httpx.PoolTimeout):
+        return "ProviderPoolTimeout"
+    return "ProviderTimeout"
 
 
 def _reserve_provider_call(limit: int) -> bool:
@@ -83,8 +211,11 @@ class IncidentAnalysisResult(BaseModel):
 @dataclass(frozen=True)
 class ProviderOutput:
     data: dict
-    model: str
+    model: str | None
     usage_tokens: int | None = None
+    http_status_code: int | None = None
+    completion_id: str | None = None
+    finish_reason: str | None = None
 
 
 class AnalysisProvider(Protocol):
@@ -96,9 +227,14 @@ class AnalysisProvider(Protocol):
 
 
 class ProviderTransientError(RuntimeError):
-    def __init__(self, retry_after: float | None = None):
+    def __init__(
+        self, retry_after: float | None = None, status_code: int | None = None
+    ):
         super().__init__("Transient model provider failure")
         self.retry_after = retry_after
+        self.status_code = status_code
+        self.diagnostic_category = "ProviderTransientError"
+        self.diagnostic_exception_types = (type(self).__name__,)
 
 
 class OpenRouterProvider:
@@ -168,11 +304,25 @@ class OpenRouterProvider:
                         "Content-Type": "application/json",
                     },
                 )
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as exc:
             # A timed-out inference may have been billed upstream; do not replay it.
-            raise RuntimeError("ProviderTimeout") from None
-        except httpx.RequestError:
-            raise RuntimeError("ProviderConnectionError") from None
+            raise _provider_error(
+                RuntimeError,
+                "ProviderTimeout",
+                _timeout_error_category(exc),
+                cause=exc,
+            ) from exc
+        except httpx.RequestError as exc:
+            category = _request_error_category(exc)
+            public_message = (
+                "ProviderConnectionError"
+                if category
+                in ("ProviderDNSResolutionError", "ProviderTCPConnectionError")
+                else category
+            )
+            raise _provider_error(
+                RuntimeError, public_message, category, cause=exc
+            ) from exc
 
         if response.status_code in (408, 429) or 500 <= response.status_code <= 599:
             retry_after = response.headers.get("Retry-After", "")
@@ -180,22 +330,57 @@ class OpenRouterProvider:
                 retry_seconds = min(2.0, max(0.0, float(retry_after)))
             except ValueError:
                 retry_seconds = None
-            raise ProviderTransientError(retry_seconds)
-        if response.status_code >= 400:
+            raise ProviderTransientError(retry_seconds, response.status_code)
+        if not 200 <= response.status_code < 300:
             # Never expose provider error bodies; they can echo prompts or secrets.
-            raise RuntimeError(f"ProviderHTTP{response.status_code}")
+            raise _provider_error(
+                RuntimeError,
+                f"ProviderHTTP{response.status_code}",
+                "ProviderHTTPStatusError",
+                status_code=response.status_code,
+            )
         try:
             payload = response.json()
-            content = payload["choices"][0]["message"]["content"]
+        except (ValueError, TypeError) as exc:
+            raise _provider_error(
+                ValueError,
+                "Provider returned malformed structured output",
+                "ProviderMalformedResponse",
+                cause=exc,
+            ) from exc
+        if not isinstance(payload, dict):
+            raise _provider_error(
+                ValueError,
+                "Provider returned malformed structured output",
+                "ProviderMalformedResponse",
+            )
+        if payload.get("error") is not None:
+            raise _provider_error(
+                RuntimeError, "ProviderErrorPayload", "ProviderErrorPayload"
+            )
+        try:
+            choice = payload["choices"][0]
+            content = choice["message"]["content"]
             result = json.loads(content)
-        except (ValueError, TypeError, KeyError, IndexError):
-            raise ValueError("Provider returned malformed structured output") from None
-        usage = payload.get("usage") or {}
-        tokens = usage.get("total_tokens")
+        except (ValueError, TypeError, KeyError, IndexError) as exc:
+            raise _provider_error(
+                ValueError,
+                "Provider returned malformed structured output",
+                "ProviderMalformedResponse",
+                cause=exc,
+            ) from exc
+        usage = payload.get("usage")
+        tokens = usage.get("total_tokens") if isinstance(usage, dict) else None
+        response_model = payload.get("model")
+        completion_id = payload.get("id")
+        finish_reason = choice.get("finish_reason")
         return ProviderOutput(
             data=result,
-            model=str(payload.get("model") or settings.openrouter_model)[:120],
-            usage_tokens=tokens if isinstance(tokens, int) and tokens >= 0 else None,
+            model=(response_model[:120] if isinstance(response_model, str) and response_model else None),
+            usage_tokens=tokens if type(tokens) is int and tokens >= 0 else None,
+            http_status_code=response.status_code,
+            completion_id=(completion_id[:128] if isinstance(completion_id, str) else None),
+            finish_reason=(finish_reason[:64] if isinstance(finish_reason, str) else None),
         )
 
 
@@ -317,7 +502,7 @@ class OpenAICompatibleProvider:
         return ProviderOutput(
             data=result,
             model=str(payload.get("model") or settings.ai_model)[:120],
-            usage_tokens=tokens if isinstance(tokens, int) and tokens >= 0 else None,
+            usage_tokens=tokens if type(tokens) is int and tokens >= 0 else None,
         )
 
 
@@ -572,6 +757,9 @@ async def analyze_incident_payload(
     provider_name = "rules_baseline"
     model = None
     tokens = None
+    http_status_code = None
+    provider_error_category = None
+    provider_error_exception_types: tuple[str, ...] = ()
     outcome = "baseline"
 
     if selected is not None and not _reserve_provider_call(
@@ -590,12 +778,16 @@ async def analyze_incident_payload(
                     )
                 result = validate_analysis(output.data, incident["description"])
                 provider_name = selected.name
-                model = output.model[:120]
+                model = output.model[:120] if output.model else None
                 tokens = output.usage_tokens
+                http_status_code = output.http_status_code
                 outcome = "validated"
                 break
             except ProviderTransientError as exc:
                 outcome = "transient_provider_failure"
+                provider_error_category = exc.diagnostic_category
+                provider_error_exception_types = exc.diagnostic_exception_types
+                http_status_code = exc.status_code
                 if attempt + 1 < settings.ai_max_attempts:
                     delay = exc.retry_after
                     if delay is None:
@@ -610,9 +802,24 @@ async def analyze_incident_payload(
                 KeyError,
                 RuntimeError,
                 OSError,
-            ):
+            ) as exc:
                 outcome = "invalid_or_unavailable"
+                category = getattr(exc, "diagnostic_category", None)
+                if category in _SAFE_PROVIDER_DIAGNOSTIC_CATEGORIES:
+                    provider_error_category = category
+                exception_types = getattr(exc, "diagnostic_exception_types", ())
+                if isinstance(exception_types, (tuple, list)):
+                    provider_error_exception_types = tuple(
+                        name
+                        for name in exception_types
+                        if isinstance(name, str)
+                        and name in _SAFE_PROVIDER_EXCEPTION_TYPES
+                    )
+                status_code = getattr(exc, "status_code", None)
+                if isinstance(status_code, int) and 100 <= status_code <= 599:
+                    http_status_code = status_code
                 result = deterministic_analysis(incident)
+                break
         else:
             result = deterministic_analysis(incident)
     else:
@@ -621,9 +828,11 @@ async def analyze_incident_payload(
     latency = int((time.monotonic() - started) * 1000)
     # Logs contain only provider metadata and counts; never incident content.
     logger.info(
-        "incident_analysis provider=%s outcome=%s latency_ms=%d usage_tokens=%s",
+        "incident_analysis provider=%s outcome=%s error_category=%s error_types=%s latency_ms=%d usage_tokens=%s",
         provider_name,
         outcome,
+        provider_error_category,
+        ",".join(provider_error_exception_types),
         latency,
         tokens,
     )
@@ -631,7 +840,12 @@ async def analyze_incident_payload(
         "provider": provider_name,
         "model": model,
         "validation_outcome": outcome,
+        "provider_error_category": provider_error_category,
+        "provider_error_exception_types": provider_error_exception_types,
         "usage_tokens": tokens,
+        "http_status_code": http_status_code,
+        "completion_id": output.completion_id if outcome == "validated" else None,
+        "finish_reason": output.finish_reason if outcome == "validated" else None,
         "latency_ms": latency,
     }
 
@@ -659,12 +873,19 @@ def next_pending_analysis_job() -> str | None:
         for stale in stale_rows:
             if stale.attempt_count >= _ANALYSIS_MAX_JOB_ATTEMPTS:
                 stale.status = "unavailable"
+                stale.claim_token = None
                 stale.validation_outcome = "retries_exhausted"
                 stale.last_error_type = "retries_exhausted"
                 stale.completed_at = now
             else:
                 stale.status = "pending"
+                stale.claim_token = None
                 stale.validation_outcome = "recovered_after_restart"
+
+        # SessionLocal disables autoflush. Persist recovery transitions before
+        # selecting pending work in this same transaction.
+        if stale_rows:
+            db.flush()
 
         pending = db.scalar(
             select(IncidentAnalysis)
@@ -693,6 +914,7 @@ async def run_analysis_recovery_worker() -> None:
 
 async def analyze_incident_task(incident_id: str) -> None:
     """Run after the submit response has been committed; failures never roll it back."""
+    claim_token = str(uuid4())
     with SessionLocal.begin() as db:
         claim = db.execute(
             update(IncidentAnalysis)
@@ -702,6 +924,7 @@ async def analyze_incident_task(incident_id: str) -> None:
             )
             .values(
                 status="processing",
+                claim_token=claim_token,
                 attempt_count=IncidentAnalysis.attempt_count + 1,
                 last_attempt_at=now_utc(),
                 last_error_type=None,
@@ -747,27 +970,37 @@ async def analyze_incident_task(incident_id: str) -> None:
             outcome_status = "unavailable"
             result_json = None
 
-    with SessionLocal() as db:
-        analysis = db.scalar(
-            select(IncidentAnalysis)
-            .where(IncidentAnalysis.incident_id == incident_id)
-            .with_for_update()
+    with SessionLocal.begin() as db:
+        completed_at = now_utc()
+        persisted = db.execute(
+            update(IncidentAnalysis)
+            .where(
+                IncidentAnalysis.incident_id == incident_id,
+                IncidentAnalysis.status == "processing",
+                IncidentAnalysis.claim_token == claim_token,
+            )
+            .values(
+                status=outcome_status,
+                claim_token=None,
+                provider=metadata["provider"],
+                model=metadata["model"],
+                validation_outcome=metadata["validation_outcome"],
+                usage_tokens=metadata["usage_tokens"],
+                latency_ms=metadata["latency_ms"],
+                last_error_type=(
+                    None
+                    if metadata["validation_outcome"] in ("validated", "baseline")
+                    else str(
+                        metadata.get("provider_error_category")
+                        or metadata["validation_outcome"]
+                    )[:80]
+                ),
+                result=result_json,
+                completed_at=completed_at,
+            )
         )
-        if not analysis or analysis.status != "processing":
+        if persisted.rowcount != 1:
             return
-        analysis.status = outcome_status
-        analysis.provider = metadata["provider"]
-        analysis.model = metadata["model"]
-        analysis.validation_outcome = metadata["validation_outcome"]
-        analysis.usage_tokens = metadata["usage_tokens"]
-        analysis.latency_ms = metadata["latency_ms"]
-        analysis.last_error_type = (
-            None
-            if metadata["validation_outcome"] in ("validated", "baseline")
-            else str(metadata["validation_outcome"])[:80]
-        )
-        analysis.result = result_json
-        analysis.completed_at = now_utc()
         db.add(
             AuditEvent(
                 actor_id=db.scalar(
@@ -780,8 +1013,13 @@ async def analyze_incident_task(incident_id: str) -> None:
                     "provider": metadata["provider"],
                     "model": metadata["model"],
                     "validation_outcome": metadata["validation_outcome"],
+                    "provider_error_category": metadata.get(
+                        "provider_error_category"
+                    ),
+                    "provider_error_exception_types": metadata.get(
+                        "provider_error_exception_types", ()
+                    ),
                     "status": outcome_status,
                 },
             )
         )
-        db.commit()

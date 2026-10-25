@@ -25,6 +25,12 @@ alembic upgrade head
 python -m app.provision_admin --email admin@example.org --display-name 'Operations Admin'
 ```
 
+The password is entered with a hidden terminal prompt; there is no default administrator password and the CLI cannot recover an existing password hash. For a new local-development Super Admin, append `--credentials-file /private/tmp/ecs-local-admin-credentials.txt` instead of entering a password. This generates a high-entropy password and writes it only to a new mode-`0600` file, without printing it. The option requires both `ENVIRONMENT=development` and SQLite, will not overwrite the target file, and retains the one-Super-Admin-only guard. Read the file locally once, store the credential in a password manager, and remove the temporary file. This does not affect a hosted database or hosted administrator account.
+
+For local sign-in, run the API on `127.0.0.1:8000`, serve the repository's `web/` directory on `localhost:8080`, open `http://localhost:8080/admin/`, and enter `http://127.0.0.1:8000` as the service URL. If that API port is already occupied, run a second instance with `DATABASE_URL=sqlite:///./data/coordination.db .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001` and enter `http://127.0.0.1:8001`. The default CORS origin allows the dashboard address. `/health/live` checks process liveness; `/health/ready` checks database connectivity. The dashboard server is not the API server.
+
+If `alembic upgrade head` reports that a table already exists, stop and preserve the database. A local development startup may already have created the current tables with SQLAlchemy `create_all`, which does not write an Alembic revision. Do not delete the file or stamp it blindly: back it up, verify its tables/columns/indexes against the current models, then stamp the verified current revision; if it is partial or differs, use a separate fresh SQLite path and keep the original backup. Existing password hashes are intentionally irreversible; bootstrap a new account only for an authorized local database. No recovery method in this project can retrieve an old demo password.
+
 Run the service:
 
 ```sh

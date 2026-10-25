@@ -56,7 +56,9 @@ void main() {
     await tester.tap(find.byType(FilledButton));
     await tester.pump(const Duration(milliseconds: 100));
     expect(
-      find.textContaining('Sign-in is temporarily unavailable'),
+      find.textContaining(
+        'Sign-in is unavailable because this app is not connected',
+      ),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);

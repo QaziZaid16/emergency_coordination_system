@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 import asyncio
 import json
+import socket
+import ssl
 
 import pytest
 from sqlalchemy import create_engine
@@ -220,8 +222,12 @@ def test_openrouter_uses_server_key_exact_model_and_strict_json_schema(monkeypat
 
         def json(self):
             return {
+                "id": "gen-synthetic-mock-001",
                 "model": "google/gemma-4-31b-it",
-                "choices": [{"message": {"content": json.dumps(valid_model_result("unused"))}}],
+                "choices": [{
+                    "message": {"content": json.dumps(valid_model_result("unused"))},
+                    "finish_reason": "stop",
+                }],
                 "usage": {"total_tokens": 19},
             }
 
@@ -241,16 +247,242 @@ def test_openrouter_uses_server_key_exact_model_and_strict_json_schema(monkeypat
 
     monkeypatch.setattr(intelligence.httpx, "AsyncClient", MockAsyncClient)
     settings = Settings(environment="test", openrouter_api_key="unit-test-secret")
-    output = asyncio.run(OpenRouterProvider().analyze(incident_payload(), settings))
+    result, metadata = run_analysis(
+        incident_payload(), settings, OpenRouterProvider()
+    )
 
-    assert output.model == "google/gemma-4-31b-it"
-    assert output.usage_tokens == 19
+    assert result.human_review_required is True
+    assert metadata["provider"] == "openrouter"
+    assert metadata["model"] == "google/gemma-4-31b-it"
+    assert metadata["usage_tokens"] == 19
+    assert metadata["http_status_code"] == 200
+    assert metadata["completion_id"] == "gen-synthetic-mock-001"
+    assert metadata["finish_reason"] == "stop"
+    assert metadata["validation_outcome"] == "validated"
     assert captured["url"] == "https://openrouter.ai/api/v1/chat/completions"
     assert captured["headers"]["Authorization"] == "Bearer unit-test-secret"
     assert captured["body"]["model"] == "google/gemma-4-31b-it"
     assert captured["body"]["provider"]["require_parameters"] is True
     assert captured["body"]["response_format"]["type"] == "json_schema"
     assert "location_label" not in captured["body"]["messages"][1]["content"]
+
+
+def test_openrouter_valid_completion_survives_malformed_optional_usage(monkeypatch):
+    class MockResponse:
+        status_code = 200
+        headers = {}
+
+        def json(self):
+            return {
+                "model": "google/gemma-4-31b-it",
+                "choices": [{
+                    "message": {"content": json.dumps(valid_model_result("unused"))},
+                    "finish_reason": "stop",
+                }],
+                "usage": ["unexpected optional metadata"],
+            }
+
+    class MockAsyncClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return MockResponse()
+
+    monkeypatch.setattr(intelligence.httpx, "AsyncClient", MockAsyncClient)
+    settings = Settings(
+        environment="test", openrouter_api_key="mock-key", _env_file=None
+    )
+    output = asyncio.run(OpenRouterProvider().analyze(incident_payload(), settings))
+
+    assert output.model == "google/gemma-4-31b-it"
+    assert output.http_status_code == 200
+    assert output.usage_tokens is None
+    assert output.finish_reason == "stop"
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_category", "expected_exception", "status_code"),
+    [
+        ("connect", "ProviderConnectionError", RuntimeError, None),
+        ("dns", "ProviderDNSResolutionError", RuntimeError, None),
+        ("tcp_refused", "ProviderTCPConnectionError", RuntimeError, None),
+        ("read_reset", "ProviderConnectionError", RuntimeError, None),
+        ("tls", "ProviderTLSFailure", RuntimeError, None),
+        ("proxy", "ProviderProxyError", RuntimeError, None),
+        ("timeout", "ProviderReadTimeout", RuntimeError, None),
+        ("connect_timeout", "ProviderConnectTimeout", RuntimeError, None),
+        ("write_timeout", "ProviderWriteTimeout", RuntimeError, None),
+        ("pool_timeout", "ProviderPoolTimeout", RuntimeError, None),
+        ("http", "ProviderHTTPStatusError", RuntimeError, 401),
+        ("redirect", "ProviderHTTPStatusError", RuntimeError, 302),
+        ("malformed", "ProviderMalformedResponse", ValueError, None),
+        ("empty", "ProviderMalformedResponse", ValueError, None),
+        ("provider_error", "ProviderErrorPayload", RuntimeError, None),
+    ],
+)
+def test_openrouter_errors_keep_safe_categories_without_credentials(
+    monkeypatch, failure, expected_category, expected_exception, status_code
+):
+    class MockResponse:
+        headers = {}
+
+        def __init__(self, status_code, payload=None):
+            self.status_code = status_code
+            self.payload = payload
+
+        def json(self):
+            if self.payload in ("malformed-json", None):
+                # httpx raises JSONDecodeError for malformed or empty response bodies.
+                raise json.JSONDecodeError("synthetic decoder error", "", 0)
+            return self.payload
+
+    connect_error = intelligence.httpx.ConnectError("synthetic connect failure")
+    if failure == "dns":
+        connect_error.__cause__ = socket.gaierror(socket.EAI_NONAME, "synthetic DNS failure")
+    elif failure == "tcp_refused":
+        connect_error.__cause__ = ConnectionRefusedError("synthetic TCP refusal")
+    elif failure == "tls":
+        connect_error.__cause__ = ssl.SSLCertVerificationError(
+            "synthetic certificate verification failure"
+        )
+    read_error = intelligence.httpx.ReadError("synthetic read failure")
+    if failure == "read_reset":
+        read_error.__cause__ = ConnectionResetError("synthetic read reset")
+    mocked_error = {
+        "connect": connect_error,
+        "dns": connect_error,
+        "tcp_refused": connect_error,
+        "read_reset": read_error,
+        "tls": connect_error,
+        "timeout": intelligence.httpx.ReadTimeout("synthetic timeout"),
+        "connect_timeout": intelligence.httpx.ConnectTimeout(
+            "synthetic connect timeout"
+        ),
+        "write_timeout": intelligence.httpx.WriteTimeout("synthetic write timeout"),
+        "pool_timeout": intelligence.httpx.PoolTimeout("synthetic pool timeout"),
+        "proxy": intelligence.httpx.ProxyError("synthetic proxy failure"),
+    }.get(failure)
+    post_calls = {"count": 0}
+
+    class MockAsyncClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            post_calls["count"] += 1
+            if mocked_error is not None:
+                raise mocked_error
+            if failure == "http":
+                return MockResponse(401, {"error": {"message": "synthetic"}})
+            if failure == "redirect":
+                return MockResponse(302, {"choices": []})
+            if failure == "malformed":
+                return MockResponse(200, "malformed-json")
+            if failure == "empty":
+                return MockResponse(204)
+            return MockResponse(200, {"error": {"message": "synthetic-secret"}})
+
+    monkeypatch.setattr(intelligence.httpx, "AsyncClient", MockAsyncClient)
+    monkeypatch.setattr(
+        intelligence,
+        "_configured_provider",
+        lambda *_args, **_kwargs: pytest.fail(
+            "controlled adapter invocation must not select an alternate provider"
+        ),
+    )
+    settings = Settings(
+        environment="test",
+        openrouter_api_key="synthetic-secret-never-log",
+        _env_file=None,
+    )
+    with pytest.raises(expected_exception) as raised:
+        asyncio.run(OpenRouterProvider().analyze(incident_payload(), settings))
+
+    error = raised.value
+    assert error.diagnostic_category == expected_category
+    assert post_calls["count"] == 1
+    if failure in ("dns", "tcp_refused"):
+        assert str(error) == "ProviderConnectionError"
+    assert getattr(error, "status_code", None) == status_code
+    assert "synthetic-secret" not in str(error)
+    assert "synthetic-secret-never-log" not in repr(error)
+    assert "Authorization" not in repr(error)
+    if mocked_error is not None:
+        assert error.__cause__ is mocked_error
+        assert type(error.__cause__).__name__ in (
+            "ConnectError",
+            "ReadError",
+            "ReadTimeout",
+            "ConnectTimeout",
+            "WriteTimeout",
+            "PoolTimeout",
+            "ProxyError",
+        )
+        assert error.diagnostic_exception_types
+    elif failure in ("malformed", "empty"):
+        assert error.diagnostic_exception_types == ("JSONDecodeError",)
+    else:
+        assert error.diagnostic_exception_types == ()
+    if failure == "tls":
+        assert isinstance(error.__cause__.__cause__, ssl.SSLCertVerificationError)
+    if failure == "dns":
+        assert error.diagnostic_exception_types == ("ConnectError", "gaierror")
+    if failure == "tcp_refused":
+        assert error.diagnostic_exception_types == (
+            "ConnectError",
+            "ConnectionRefusedError",
+        )
+    if failure == "read_reset":
+        assert error.diagnostic_category == "ProviderConnectionError"
+        assert "ConnectionResetError" in error.diagnostic_exception_types
+
+
+def test_connection_diagnostics_preserve_deterministic_fallback(monkeypatch, caplog):
+    class MockAsyncClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            raise intelligence.httpx.ConnectError("synthetic connect failure")
+
+    monkeypatch.setattr(intelligence.httpx, "AsyncClient", MockAsyncClient)
+    incident = incident_payload("Synthetic smoke report for fallback verification.")
+    settings = Settings(
+        environment="test",
+        ai_max_attempts=1,
+        openrouter_api_key="synthetic-secret-never-log",
+        _env_file=None,
+    )
+    result, metadata = run_analysis(incident, settings, OpenRouterProvider())
+
+    assert metadata["provider"] == "rules_baseline"
+    assert metadata["validation_outcome"] == "invalid_or_unavailable"
+    assert metadata["provider_error_category"] == "ProviderConnectionError"
+    assert metadata["provider_error_exception_types"] == ("ConnectError",)
+    assert result.summary == incident["description"]
+    assert result.human_review_required is True
+    assert "synthetic-secret-never-log" not in caplog.text
+    assert "Authorization" not in caplog.text
+    assert incident["description"] not in caplog.text
 
 
 def test_openrouter_settings_load_from_server_environment(monkeypatch):
@@ -263,6 +495,93 @@ def test_openrouter_settings_load_from_server_environment(monkeypatch):
     assert settings.openrouter_api_key == "test-only-server-key"
     assert settings.openrouter_model == "google/gemma-4-31b-it"
     assert settings.openrouter_base_url == "https://openrouter.ai/api/v1"
+
+
+def test_openrouter_key_alone_does_not_enable_provider():
+    configured = Settings(
+        environment="test",
+        ai_provider="none",
+        openrouter_api_key="test-only-server-key",
+    )
+    assert intelligence._configured_provider(configured) is None
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_outcome"),
+    [
+        ("missing_key", "invalid_or_unavailable"),
+        ("missing_model", "invalid_or_unavailable"),
+        ("connection", "invalid_or_unavailable"),
+        ("provider_error", "invalid_or_unavailable"),
+        ("timeout", "invalid_or_unavailable"),
+        ("malformed_output", "invalid_or_unavailable"),
+        ("transient_http", "transient_provider_failure"),
+    ],
+)
+def test_openrouter_failures_fall_back_to_deterministic_analysis(
+    monkeypatch, failure, expected_outcome
+):
+    class MockResponse:
+        headers = {"Retry-After": "0"}
+
+        def __init__(self, status_code, content=None):
+            self.status_code = status_code
+            self.content = content
+
+        def json(self):
+            return {"choices": [{"message": {"content": self.content}}]}
+
+    class MockAsyncClient:
+        calls = 0
+
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            MockAsyncClient.calls += 1
+            if failure == "timeout":
+                raise intelligence.httpx.ReadTimeout("synthetic timeout")
+            if failure == "connection":
+                raise intelligence.httpx.ConnectError("synthetic connection failure")
+            if failure == "provider_error":
+                return MockResponse(401)
+            if failure == "transient_http":
+                return MockResponse(503)
+            return MockResponse(200, "not JSON" if failure == "malformed_output" else "{}")
+
+    monkeypatch.setattr(intelligence.httpx, "AsyncClient", MockAsyncClient)
+    key = "" if failure == "missing_key" else "test-only-server-key"
+    settings = Settings(
+        environment="test",
+        ai_max_attempts=3,
+        openrouter_api_key=key,
+        openrouter_model=(
+            "" if failure == "missing_model" else "google/gemma-4-31b-it"
+        ),
+        _env_file=None,
+    )
+
+    result, metadata = run_analysis(
+        incident_payload(), settings, OpenRouterProvider()
+    )
+
+    assert metadata["provider"] == "rules_baseline"
+    assert metadata["validation_outcome"] == expected_outcome
+    assert MockAsyncClient.calls == (
+        3
+        if failure == "transient_http"
+        else 0
+        if failure in ("missing_key", "missing_model")
+        else 1
+    )
+    assert result.summary == incident_payload()["description"]
+    assert result.human_review_required is True
 
 
 def test_deterministic_analysis_only_extracts_terms_present_in_original_report():
