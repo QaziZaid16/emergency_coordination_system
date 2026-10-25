@@ -11,7 +11,7 @@ The repository contains client and API implementations, migration history, tests
 
 Provider-off tests and local client checks pass in this workspace; that does not establish hosted behavior. The integration audit records one earlier successful Gemma adapter-level completion and earlier disposable PostgreSQL 17.11 migration/ownership results. Neither establishes live incident-to-analysis deployment or production readiness. See [the integration audit](docs/GEMMA_INTEGRATION_AUDIT.md).
 
-The proposed local demo is limited to synthetic data and up to three phones on trusted Wi-Fi. It is **not ready to run**: database-volume ownership, backup/restore evidence, exact LAN/firewall scope, and separate runtime authorization remain open. Cloud staging is **NOT AUTHORIZED**; production is **NO-GO**.
+The proposed local demo is limited to synthetic data and up to three phones on trusted Wi-Fi. It is **not ready to run**: database-volume ownership, backup/restore evidence, exact LAN/firewall scope, and separate runtime authorization remain open. Free cloud staging is now user-authorized but no provider project, persistent database, public URL, or deployment has been configured or verified. Production remains **NO-GO**.
 
 ## Contents
 

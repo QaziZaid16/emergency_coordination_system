@@ -74,13 +74,17 @@ void main() {
     expect(ApiConfiguration('', releaseMode: false).isValid, isFalse);
     expect(ApiConfiguration('not a url', releaseMode: false).isValid, isFalse);
     expect(
-      ApiConfiguration('http://user@192.168.1.2:8000', releaseMode: false)
-          .isValid,
+      ApiConfiguration(
+        'http://user@192.168.1.2:8000',
+        releaseMode: false,
+      ).isValid,
       isFalse,
     );
     expect(
-      ApiConfiguration('http://192.168.1.2:8000?token=x', releaseMode: false)
-          .isValid,
+      ApiConfiguration(
+        'http://192.168.1.2:8000?token=x',
+        releaseMode: false,
+      ).isValid,
       isFalse,
     );
   });
