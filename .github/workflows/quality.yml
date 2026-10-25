@@ -68,6 +68,14 @@ jobs:
           node scripts/build_web_config.mjs --required
           node --check web/admin/config.js
           node --check web/admin/app.js
+      - name: Install isolated React dashboard dependencies
+        run: npm ci --prefix web/react-dashboard
+      - name: Test isolated React dashboard
+        run: npm test --prefix web/react-dashboard
+      - name: Build isolated React dashboard
+        env:
+          VITE_ECS_API_ORIGIN: https://ecs-ci-api.onrender.com
+        run: npm run build --prefix web/react-dashboard
 
   android-release:
     needs: [backend, flutter, web]

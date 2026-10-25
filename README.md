@@ -71,6 +71,7 @@ Backend dependency ranges are declared in backend/requirements.txt and backend/r
 
 - **Flutter client:** one app with User, Responder, and Admin portals. Session identity and role come from the server. The local training workspace is separate from authenticated API records and is not imported into the server database.
 - **Browser dashboard:** static HTML, CSS, and JavaScript in **web/**. It calls the same API and is not served by Uvicorn. Its service URL can be supplied at build time or entered on the sign-in screen.
+- **Isolated React staging dashboard:** a separate Vite + React + TypeScript app in **web/react-dashboard/**. It uses the existing `/api/v1` contracts and has its own build output; it does not replace the static dashboard or activation routes.
 - **FastAPI backend:** validates requests, enforces authentication/permissions/ownership, applies workflow policy, manages SQLAlchemy transactions, and exposes health endpoints.
 - **Database:** SQLite for local development and tests; PostgreSQL is required by production configuration. The Compose PostgreSQL service uses a persistent named volume.
 - **Analysis worker:** analysis rows are durable database records. FastAPI BackgroundTasks handles new work; a polling loop in each non-test API process recovers pending and stale work. This is not Celery, Redis, or a separately coordinated queue service.
@@ -183,7 +184,8 @@ sequenceDiagram
 ├── web/
 │   ├── admin/                           Static coordinator dashboard and analytics tests
 │   ├── activate.html                    Invitation activation page
-│   └── index.html                       Static site entry point
+│   ├── react-dashboard/                 Isolated React staging dashboard
+│   └── index.html                       Flutter Web entry point
 ├── render.yaml                          Render API service template
 ├── vercel.json                          Static dashboard build/output configuration
 ├── pubspec.yaml / pubspec.lock          Flutter dependencies and lock file
@@ -200,7 +202,7 @@ Root files also include **SETUP.md** (legacy build-staging notes), **analysis_op
 | Flutter/Dart | Flutter 3.47.7 in CI; Dart SDK constraint 3.13.5+ | Android client, widget tests, Flutter web target |
 | Java | JDK 17 for Android builds | Gradle/Android toolchain |
 | Android SDK / Platform Tools | Emulator/device and APK builds | Android client |
-| Node.js | Node 24 in CI | Static dashboard config build and JavaScript checks |
+| Node.js | Node 24 in CI | Static dashboard checks and isolated React dashboard |
 | Docker Compose | Optional; only for PostgreSQL development | Compose PostgreSQL service |
 | PostgreSQL | PostgreSQL 17 in Compose; production configuration requires PostgreSQL | Deployment and explicitly approved PG tests |
 
@@ -339,6 +341,27 @@ The development/test lifespan creates missing tables with SQLAlchemy metadata. F
 ### Browser dashboard
 
 The static site lives in web/. It can be served locally with Python's static file server; the API remains a separate process. The dashboard polls operational and notification data while visible and provides manual refresh.
+
+### Isolated React coordinator dashboard
+
+The React application in `web/react-dashboard/` is for separate staging review. It does not change the current `/`, `/admin`, or `/activate` routes. From the repository root:
+
+~~~sh
+cp web/react-dashboard/.env.example web/react-dashboard/.env.local
+# Set VITE_ECS_API_ORIGIN in .env.local to the real HTTPS API origin (origin only).
+npm ci --prefix web/react-dashboard
+npm run dev --prefix web/react-dashboard
+~~~
+
+The API must allow the local Vite origin through its existing CORS configuration. The React app rejects HTTP, placeholder domains, and API URLs containing credentials, paths, queries, or fragments. For tests and a production build, run:
+
+~~~sh
+npm test --prefix web/react-dashboard
+VITE_ECS_API_ORIGIN=https://your-real-api-host.tld npm run build --prefix web/react-dashboard
+npm run preview --prefix web/react-dashboard
+~~~
+
+The production build is written to `web/react-dashboard/dist/`, separate from Flutter's `build/web/`. To stage it later, configure a **separate Vercel project** with Root Directory `web/react-dashboard`, Framework Preset Vite, Build Command `npm run build`, Output Directory `dist`, and public build variable `VITE_ECS_API_ORIGIN` set to the real HTTPS API origin. Keep the existing Vercel project and invitation activation host unchanged; responder invitations currently point to the activation host configured by the backend. Provider setup and deployment are separate manual steps.
 
 ### Flutter
 
@@ -526,6 +549,8 @@ flutter test test/api_client_test.dart test/api_configuration_test.dart test/dis
 node --test web/admin/analytics.test.cjs
 node --check web/admin/app.js
 node --check scripts/build_web_config.mjs
+npm test --prefix web/react-dashboard
+VITE_ECS_API_ORIGIN=https://your-real-api-host.tld npm run build --prefix web/react-dashboard
 ~~~
 
 The test framework uses provider/HTTP mocks or blocks outbound HTTP in widget tests. Do not configure a live provider or SMTP to run the offline suite.
