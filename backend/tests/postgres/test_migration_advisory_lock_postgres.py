@@ -16,8 +16,8 @@ from app.migration_lock import ALEMBIC_MIGRATION_LOCK_KEY
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
-PARENT_REVISION = "c2a71d0e48bf"
-HEAD_REVISION = "4e5b0b6a92d1"
+PARENT_REVISION = "4e5b0b6a92d1"
+HEAD_REVISION = "d6b85f2c0a71"
 
 
 def _migration_env(application_name: str) -> dict[str, str]:
@@ -56,15 +56,12 @@ def _current_revision(engine) -> str:
         return connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
 
 
-def _claim_token_exists(engine) -> bool:
+def _login_attempt_table_exists(engine) -> bool:
     with engine.connect() as connection:
         return bool(
             connection.execute(
                 text(
-                    "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
-                    "WHERE table_schema = 'public' "
-                    "AND table_name = 'incident_analyses' "
-                    "AND column_name = 'claim_token')"
+                    "SELECT to_regclass('public.login_attempt_buckets') IS NOT NULL"
                 )
             ).scalar_one()
         )
@@ -106,6 +103,18 @@ def _lock_state(engine, application_name: str):
             {"application_name": application_name, "key_high": key_high, "key_low": key_low},
         ).scalar_one()
     return activity, granted, waiting
+
+
+def _login_attempt_index_exists(engine) -> bool:
+    with engine.connect() as connection:
+        return bool(
+            connection.execute(
+                text(
+                    "SELECT to_regclass('public.ix_login_attempt_buckets_window') "
+                    "IS NOT NULL"
+                )
+            ).scalar_one()
+        )
 
 
 def _wait_for_state(engine, application_name: str, expected: str, process):
@@ -153,7 +162,8 @@ def test_concurrent_alembic_processes_serialize_before_revision_lookup(
     engine = postgres_test_engine
     assert _run_alembic(f"ecs-p23-down-{uuid4().hex[:8]}", "downgrade", PARENT_REVISION) == 0
     assert _current_revision(engine) == PARENT_REVISION
-    assert not _claim_token_exists(engine)
+    assert not _login_attempt_table_exists(engine)
+    assert not _login_attempt_index_exists(engine)
 
     first_name = f"ecs-p23-first-{uuid4().hex[:8]}"
     second_name = f"ecs-p23-second-{uuid4().hex[:8]}"
@@ -161,7 +171,10 @@ def test_concurrent_alembic_processes_serialize_before_revision_lookup(
     gate = engine.connect()
     transaction = gate.begin()
     try:
-        gate.execute(text("LOCK TABLE incident_analyses IN ACCESS EXCLUSIVE MODE"))
+        # Alembic acquires its advisory lock before reading alembic_version.
+        # Blocking that read proves the first runner holds the advisory lock
+        # while the second runner waits for it.
+        gate.execute(text("LOCK TABLE alembic_version IN ACCESS EXCLUSIVE MODE"))
 
         first = _start_alembic(first_name, "upgrade", "head")
         _wait_for_state(engine, first_name, "holder_blocked_on_table", first)
@@ -182,7 +195,8 @@ def test_concurrent_alembic_processes_serialize_before_revision_lookup(
         _terminate(second)
 
     assert _current_revision(engine) == HEAD_REVISION
-    assert _claim_token_exists(engine)
+    assert _login_attempt_table_exists(engine)
+    assert _login_attempt_index_exists(engine)
 
 
 def test_failed_migration_rolls_back_releases_lock_and_later_upgrade_succeeds(
@@ -191,13 +205,19 @@ def test_failed_migration_rolls_back_releases_lock_and_later_upgrade_succeeds(
     engine = postgres_test_engine
     assert _run_alembic(f"ecs-p23-down-{uuid4().hex[:8]}", "downgrade", PARENT_REVISION) == 0
     assert _current_revision(engine) == PARENT_REVISION
-    assert not _claim_token_exists(engine)
+    assert not _login_attempt_table_exists(engine)
+    assert not _login_attempt_index_exists(engine)
 
-    # A separately committed duplicate column makes the ownership migration
+    # A separately committed duplicate table makes the login-bucket migration
     # fail inside its Alembic transaction after acquiring the advisory lock.
     with engine.begin() as connection:
         connection.execute(
-            text("ALTER TABLE incident_analyses ADD COLUMN claim_token VARCHAR(36)")
+            text(
+                "CREATE TABLE login_attempt_buckets ("
+                "identifier_hash VARCHAR(64) PRIMARY KEY, "
+                "window_started_at TIMESTAMP WITH TIME ZONE NOT NULL, "
+                "attempt_count INTEGER NOT NULL)"
+            )
         )
     failed_name = f"ecs-p23-failure-{uuid4().hex[:8]}"
     retry_name = f"ecs-p23-retry-{uuid4().hex[:8]}"
@@ -212,28 +232,26 @@ def test_failed_migration_rolls_back_releases_lock_and_later_upgrade_succeeds(
             pytest.fail("expected failing migration timed out; output withheld")
         assert process.returncode != 0
         assert _current_revision(engine) == PARENT_REVISION
-        assert _claim_token_exists(engine)
+        assert _login_attempt_table_exists(engine)
+        assert not _login_attempt_index_exists(engine)
 
         # Removing only the injected test fault leaves this disposable target
         # at the parent revision, ready for a clean retry.
         with engine.begin() as connection:
-            connection.execute(
-                text("ALTER TABLE incident_analyses DROP COLUMN claim_token")
-            )
+            connection.execute(text("DROP TABLE login_attempt_buckets"))
         assert _run_alembic(retry_name, "upgrade", "head") == 0
         assert _current_revision(engine) == HEAD_REVISION
-        assert _claim_token_exists(engine)
+        assert _login_attempt_table_exists(engine)
+        assert _login_attempt_index_exists(engine)
     finally:
         _terminate(process)
         # Restore the disposable database to head if an assertion interrupted
-        # the test after injecting the duplicate column.
+        # the test after injecting the duplicate table.
         revision = _current_revision(engine)
         if revision == PARENT_REVISION:
-            if _claim_token_exists(engine):
+            if _login_attempt_table_exists(engine):
                 with engine.begin() as connection:
-                    connection.execute(
-                        text("ALTER TABLE incident_analyses DROP COLUMN claim_token")
-                    )
+                    connection.execute(text("DROP TABLE login_attempt_buckets"))
             result = _run_alembic(
                 f"ecs-p23-cleanup-{uuid4().hex[:8]}", "upgrade", "head"
             )

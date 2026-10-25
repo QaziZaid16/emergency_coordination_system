@@ -290,6 +290,7 @@ Defaults below come from source and checked-in configuration; they are not a rec
 |---|---|---|---|
 | DATABASE_URL | SQLAlchemy target | SQLite file default; production requires postgresql+psycopg URL | Credential-bearing URLs are secret |
 | ENVIRONMENT | Lifecycle/config mode | development | Production has stricter validation and does not create schema in app lifespan |
+| STAGING_RESPONDER_INVITATION_HANDOFF | Return a one-time responder activation link to an authorized staging administrator | false | Accepted only with ENVIRONMENT=staging and SMTP_HOST empty; production rejects it |
 | JWT_SECRET | JWT signing | Required outside tests; 32+ characters | Secret; use a private random value |
 | ACCESS_TOKEN_MINUTES | Access token lifetime | 30 | No |
 | REMEMBER_ME_DAYS | Refresh session lifetime | 30; range 1–365 | No |
@@ -371,7 +372,7 @@ flutter build apk --debug --dart-define=API_BASE_URL=http://127.0.0.1:8000
 flutter build web --no-pub
 ~~~
 
-The Flutter web target is separate from the static deployment site: the checked-in Vercel configuration deploys web/, not build/web/. A build without API_BASE_URL can show the login UI but cannot connect to a service.
+The Flutter web target is separate from the static deployment site: Vercel publishes `web/`, whose `/` and `/admin` routes open the static coordinator dashboard; the Flutter web build is emitted separately under `build/web/`. A Flutter build without API_BASE_URL can show the login UI but cannot connect to a service.
 
 ## HTTP API reference
 
@@ -568,6 +569,8 @@ On 2026-10-25:
 
 The Dart formatter could not run because the Flutter SDK attempted a cache write outside the repository and the environment denied it. PostgreSQL tests were not run in the latest verification. Earlier PostgreSQL 17.11 tests and one live adapter-level completion are described in the audit; neither is a current deployment check. There is no verified public URL.
 
+Phase 60 targeted checks later passed: backend login/auth/config regressions **22 passed** (one Starlette/httpx warning), Flutter API configuration **3 passed**, dashboard analytics/deployment checks **9 passed**, Flutter analysis clean, and Flutter web build succeeded. The build output was confirmed under `build/web/`; no database migration or browser/runtime test was run. The Dart formatter remains blocked by the SDK cache permission error.
+
 ## Security, privacy, and safety
 
 - Use synthetic demo accounts/incidents only. Do not include real incident information or precise real locations.
@@ -577,8 +580,8 @@ The Dart formatter could not run because the Flutter SDK attempted a cache write
 - Keep SMTP unset to prevent invitation email. In-app notification records are not proof of external delivery.
 - Keep PostgreSQL private. Do not publish port 5432 or attach an unidentified Compose volume.
 - Set CORS_ORIGINS to exact browser origins. Development defaults are localhost origins.
-- Android release builds require HTTPS. Debug cleartext settings do not make private-LAN HTTP safe.
-- MFA, account recovery, a shared distributed invitation rate limiter, push delivery, and production operational monitoring are absent.
+- Android release builds require HTTPS. Debug builds permit only loopback, RFC1918 IPv4, and IPv6 unique-local HTTP API origins; that traffic is unencrypted and still requires an approved, restricted demo network and firewall policy.
+- Login attempts are limited to 10 per 15-minute window per normalized email identifier, stored as a keyed HMAC digest in the shared application database. This is shared across API processes using that database; PostgreSQL concurrency still requires staging verification. Invitation and AI-provider limits remain process-local. MFA, account recovery, push delivery, and production operational monitoring are absent.
 - Do not enable prototype assignment rules for real-world incidents.
 - Logs and audit rows may contain sensitive operational metadata; provider error logs intentionally omit request/response content and credentials.
 
@@ -611,8 +614,8 @@ The Dart formatter could not run because the Flutter SDK attempted a cache write
 - **Render:** render.yaml defines one Docker web service named emergency-coordination-api with plan free, startup through backend/start.sh, automatic deploy after checks, and /health/ready health check. It does not define a PostgreSQL resource.
 - **Startup:** backend/start.sh runs alembic upgrade head with up to five attempts before Uvicorn binds 0.0.0.0 and PORT (default 8000). Every service start runs migrations. The advisory lock serializes PostgreSQL migration transactions but does not coordinate application-version overlap.
 - **Docker:** backend/Dockerfile uses Python 3.12 slim. Its default command starts Uvicorn directly; it does not run start.sh unless deployment configuration selects it. Local Compose API host binding is 127.0.0.1:8000; the database has no published host port.
-- **Static site:** vercel.json builds web/ through scripts/build_web_config.mjs. ECS_API_BASE_URL must be a real HTTPS origin for the required deployment build.
-- **CI/CD:** .github/workflows/quality.yml runs backend, Flutter, and static-web checks. The signed Android release job requires protected repository variables/secrets and is gated on them.
+- **Static site:** vercel.json publishes `web/`; its root and `/admin` routes resolve to the static coordinator dashboard, and `/activate` resolves to the activation page. `scripts/build_web_config.mjs` requires a real HTTPS `ECS_API_BASE_URL` for the configured deployment build. The isolated React dashboard has its own Vercel staging project instructions in `web/react-dashboard/README.md`. The Flutter web artifact is separate under `build/web/`.
+- **CI/CD:** .github/workflows/quality.yml runs backend, Flutter, static-web, and isolated React dashboard checks/build. The signed Android release job requires protected repository variables/secrets and is gated on them.
 
 These are templates/configuration, not proof of hosted resources. The hosting guide proposes Vercel/Render/Supabase, but this repository contains no verified connected project, database, public URL, or current hosting cost.
 

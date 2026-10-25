@@ -32,8 +32,12 @@ class ApiConfiguration {
       return 'Release builds require an HTTPS API_BASE_URL.';
     }
     if (uri.scheme != 'https' &&
-        !(uri.scheme == 'http' && !releaseMode && _isLocalHost(host))) {
-      return 'Use HTTPS, or a loopback HTTP URL in a debug build.';
+        !(uri.scheme == 'http' &&
+            !releaseMode &&
+            (_isLocalHost(host) ||
+                _isPrivateIpv4(host) ||
+                _isUniqueLocalIpv6(host)))) {
+      return 'Use HTTPS, or a private-network HTTP URL in a debug build.';
     }
     return null;
   }
@@ -45,6 +49,34 @@ class ApiConfiguration {
       host == '127.0.0.1' ||
       host == '::1' ||
       host == '10.0.2.2';
+
+  static bool _isPrivateIpv4(String host) {
+    final parts = host.split('.');
+    if (parts.length != 4) return false;
+    final octets = <int>[];
+    for (final part in parts) {
+      final value = int.tryParse(part);
+      if (value == null ||
+          value < 0 ||
+          value > 255 ||
+          part != value.toString()) {
+        return false;
+      }
+      octets.add(value);
+    }
+    return octets[0] == 10 ||
+        (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31) ||
+        (octets[0] == 192 && octets[1] == 168);
+  }
+
+  static bool _isUniqueLocalIpv6(String host) {
+    // fc00::/7 is IPv6 unique-local space. Link-local IPv6 is excluded because
+    // a usable URL also needs an interface scope identifier.
+    final firstHextet = host.split(':').first;
+    if (firstHextet.isEmpty) return false;
+    final value = int.tryParse(firstHextet, radix: 16);
+    return value != null && value >= 0xfc00 && value <= 0xfdff;
+  }
 
   static bool _isPlaceholder(String host) =>
       host == 'your-api-host' ||

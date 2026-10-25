@@ -49,6 +49,8 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
       - run: flutter test test/api_client_test.dart test/api_configuration_test.dart test/dispatch_rules_test.dart test/operations_store_test.dart test/widget_test.dart
+      - run: flutter build web --no-pub
+      - run: test -s build/web/index.html && test -s build/web/flutter_bootstrap.js && test -s build/web/main.dart.js && test -d build/web/assets
       - run: node --check web/admin/app.js
       - run: node --check scripts/build_web_config.mjs
 
@@ -65,6 +67,7 @@ jobs:
           # in its own project settings when it performs a deployment.
           ECS_API_BASE_URL: https://ecs-ci-api.onrender.com
         run: |
+          node --test web/admin/deployment.test.cjs
           node scripts/build_web_config.mjs --required
           node --check web/admin/config.js
           node --check web/admin/app.js

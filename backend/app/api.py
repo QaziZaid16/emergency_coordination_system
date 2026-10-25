@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+import hashlib
+import hmac
 import re
 import secrets
 import smtplib
@@ -11,14 +13,16 @@ from uuid import uuid4
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, update
+from sqlalchemy import case, delete, select, update
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
 from app.dispatch import distance_km, priority_for
-from app.models import AccountInvitation, Assignment, AuditEvent, AuthSession, CoordinationPolicy, Incident, IncidentAnalysis, IncidentReport, IncidentUpdate, Notification, ResponderProfile, Resource, User, now_utc
+from app.models import AccountInvitation, Assignment, AuditEvent, AuthSession, CoordinationPolicy, Incident, IncidentAnalysis, IncidentReport, IncidentUpdate, LoginAttemptBucket, Notification, ResponderProfile, Resource, User, now_utc
 from app.schemas import AssignmentCreate, AutomaticAssignmentPolicyUpdate, AvailabilityUpdate, CoAdminCreate, CopilotQuestion, IncidentCreate, IntakeAnswers, InvitationAccept, LoginRequest, LoginResponse, MessageCreate, RefreshRequest, ReportReview, ResponderInviteCreate, ResponderLocation, ResourceCreate, RewriteRequest, StatusUpdate, UserCreate, UserRegister, UserView
 from app.intelligence import analyze_incident_task, find_duplicate_candidates, rewrite_responder_note
 from app.security import bearer, current_user, encode_access_token, hash_password, hash_refresh_token, issue_token, require_roles, verify_password
@@ -29,6 +33,62 @@ RESPONDER_VISIBLE_ASSIGNMENTS = (*ACTIVE_ASSIGNMENTS, "Resolved", "Completed")
 NEXT_STATUS = {"Assigned": "Accepted", "Accepted": "En Route", "En Route": "On Scene", "On Scene": "Resolved"}
 _invite_attempts: dict[str, deque[float]] = defaultdict(deque)
 _invite_attempts_lock = Lock()
+_LOGIN_ATTEMPT_LIMIT = 10
+_LOGIN_ATTEMPT_WINDOW = timedelta(minutes=15)
+_DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(32))
+
+
+def _login_identifier_hash(email: str) -> str:
+    normalized = email.strip().casefold()
+    key = get_settings().jwt_secret.encode("utf-8")
+    return hmac.new(key, normalized.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _reserve_login_attempt(
+    db: Session, identifier_hash: str
+) -> tuple[datetime, int] | None:
+    """Atomically reserve a login attempt in the shared application database.
+
+    PostgreSQL's and SQLite's conflict updates serialize increments for a key.
+    The production settings require PostgreSQL; unsupported dialects fail closed.
+    Only a one-way digest is stored, and expired buckets are pruned on login.
+    """
+    now = now_utc()
+    cutoff = now - _LOGIN_ATTEMPT_WINDOW
+    db.execute(
+        delete(LoginAttemptBucket).where(
+            LoginAttemptBucket.window_started_at <= cutoff
+        )
+    )
+    table = LoginAttemptBucket.__table__
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        insert = postgres_insert(table)
+    elif dialect == "sqlite":
+        insert = sqlite_insert(table)
+    else:
+        raise RuntimeError("Login throttling requires PostgreSQL or SQLite")
+    reset_window = table.c.window_started_at <= cutoff
+    statement = insert.values(
+        identifier_hash=identifier_hash,
+        window_started_at=now,
+        attempt_count=1,
+    ).on_conflict_do_update(
+        index_elements=[table.c.identifier_hash],
+        set_={
+            "window_started_at": case(
+                (reset_window, now), else_=table.c.window_started_at
+            ),
+            "attempt_count": case(
+                (reset_window, 1), else_=table.c.attempt_count + 1
+            ),
+        },
+    ).returning(table.c.window_started_at, table.c.attempt_count)
+    reservation = db.execute(statement).one()
+    db.commit()
+    if reservation.attempt_count > _LOGIN_ATTEMPT_LIMIT:
+        return None
+    return reservation.window_started_at, reservation.attempt_count
 
 
 def require_account_management(
@@ -78,6 +138,14 @@ def send_invitation_email(email: str, display_name: str, link: str) -> bool:
         return True
     except (OSError, smtplib.SMTPException):
         return False
+
+
+def staging_invitation_handoff_enabled(settings) -> bool:
+    return (
+        settings.environment.casefold() == "staging"
+        and bool(getattr(settings, "staging_responder_invitation_handoff", False))
+        and not settings.smtp_host
+    )
 
 
 def resource_matches_incident(kind: str, emergency_type: str) -> bool:
@@ -260,9 +328,23 @@ def create_resolution_report(db: Session, incident: Incident) -> IncidentReport:
 
 @router.post("/auth/login", response_model=LoginResponse)
 def login(body: LoginRequest, db: Session = Depends(get_db)):
+    identifier_hash = _login_identifier_hash(body.email)
+    reservation = _reserve_login_attempt(db, identifier_hash)
+    if reservation is None:
+        raise HTTPException(429, "Too many login attempts. Try again later.")
     user = db.scalar(select(User).where(User.email == body.email.lower()))
-    if not user or not verify_password(body.password, user.password_hash) or not user.active:
+    password_valid = verify_password(
+        body.password, user.password_hash if user else _DUMMY_PASSWORD_HASH
+    )
+    if not user or not password_valid or not user.active:
         raise HTTPException(401, "Email or password is incorrect")
+    db.execute(
+        delete(LoginAttemptBucket).where(
+            LoginAttemptBucket.identifier_hash == identifier_hash,
+            LoginAttemptBucket.window_started_at == reservation[0],
+            LoginAttemptBucket.attempt_count == reservation[1],
+        )
+    )
     token, expires, refresh_token, session_expires = issue_token(user, db, body.remember_me)
     return {
         "access_token": token,
@@ -850,10 +932,12 @@ def admin_responders(admin: User = Depends(require_roles("admin")), db: Session 
 
 
 @router.post("/admin/invitations/responders", status_code=201)
-def invite_responder(body: ResponderInviteCreate, admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
+def invite_responder(body: ResponderInviteCreate, response: Response, admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
     limit_invitation_requests(admin.id)
     settings = get_settings()
-    if settings.environment == "production" and not settings.public_app_url.startswith("https://"):
+    environment = settings.environment.casefold()
+    handoff_enabled = staging_invitation_handoff_enabled(settings)
+    if environment in {"production", "staging"} and not settings.public_app_url.startswith("https://"):
         raise HTTPException(503, "Responder activation requires an HTTPS public application URL")
     email = str(body.email).lower()
     if db.scalar(select(User).where(User.email == email)):
@@ -868,17 +952,27 @@ def invite_responder(body: ResponderInviteCreate, admin: User = Depends(require_
     raw_token = secrets.token_urlsafe(48)
     invitation = AccountInvitation(user_id=user.id, token_hash=hash_refresh_token(raw_token), expires_at=now_utc() + timedelta(hours=24))
     db.add(invitation)
-    audit(db, admin, "responder.invitation_created", "user", user.id, {"capabilities": capabilities})
+    link = f"{settings.public_app_url.rstrip('/')}/activate.html#token={raw_token}"
+    audit(db, admin, "responder.invitation_created", "user", user.id, {"capabilities": capabilities, "invitation_id": invitation.id})
+    if handoff_enabled:
+        audit(db, admin, "responder.activation_handoff_issued", "user", user.id, {"invitation_id": invitation.id})
     db.commit()
-    link = f"{get_settings().public_app_url.rstrip('/')}/activate.html?token={raw_token}"
-    delivered = send_invitation_email(email, user.display_name, link)
+    delivered = (
+        True
+        if handoff_enabled or (environment == "development" and not settings.smtp_host)
+        else send_invitation_email(email, user.display_name, link)
+    )
     if not delivered:
         invitation.revoked_at = now_utc()
         user.active = False
-        audit(db, admin, "responder.invitation_delivery_failed", "user", user.id)
+        audit(db, admin, "responder.invitation_delivery_failed", "user", user.id, {"invitation_id": invitation.id})
         db.commit()
         raise HTTPException(502, "Invitation email delivery failed. Check the mail configuration and resend.")
-    return {"user_id": user.id, "email": user.email, "invitation_status": "sent" if get_settings().smtp_host else "development_link", "expires_at": invitation.expires_at, "activation_url": link if not get_settings().smtp_host and get_settings().environment == "development" else None}
+    if handoff_enabled:
+        response.headers["Cache-Control"] = "no-store"
+    activation_url = link if handoff_enabled or (not settings.smtp_host and environment == "development") else None
+    invitation_status = "activation_handoff" if handoff_enabled else "sent" if settings.smtp_host else "development_link"
+    return {"user_id": user.id, "email": user.email, "invitation_status": invitation_status, "expires_at": invitation.expires_at, "activation_url": activation_url}
 
 
 @router.get("/admin/invitations")
@@ -902,8 +996,11 @@ def revoke_invitation(invitation_id: str, admin: User = Depends(require_roles("a
 
 
 @router.post("/admin/invitations/responders/{user_id}/resend", status_code=201)
-def resend_responder_invitation(user_id: str, admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
+def resend_responder_invitation(user_id: str, response: Response, admin: User = Depends(require_roles("admin")), db: Session = Depends(get_db)):
     limit_invitation_requests(admin.id)
+    settings = get_settings()
+    environment = settings.environment.casefold()
+    handoff_enabled = staging_invitation_handoff_enabled(settings)
     user = db.get(User, user_id)
     if not user or user.role != "responder" or user.active:
         raise HTTPException(404, "Pending responder invitation not found")
@@ -915,16 +1012,26 @@ def resend_responder_invitation(user_id: str, admin: User = Depends(require_role
     raw_token = secrets.token_urlsafe(48)
     invitation = AccountInvitation(user_id=user.id, token_hash=hash_refresh_token(raw_token), expires_at=now_utc() + timedelta(hours=24))
     db.add(invitation)
+    link = f"{settings.public_app_url.rstrip('/')}/activate.html#token={raw_token}"
     audit(db, admin, "responder.invitation_resent", "user", user.id)
+    if handoff_enabled:
+        audit(db, admin, "responder.activation_handoff_issued", "user", user.id, {"invitation_id": invitation.id})
     db.commit()
-    link = f"{get_settings().public_app_url.rstrip('/')}/activate.html?token={raw_token}"
-    delivered = send_invitation_email(user.email, user.display_name, link)
+    delivered = (
+        True
+        if handoff_enabled or (environment == "development" and not settings.smtp_host)
+        else send_invitation_email(user.email, user.display_name, link)
+    )
     if not delivered:
         invitation.revoked_at = now_utc()
+        audit(db, admin, "responder.invitation_delivery_failed", "user", user.id, {"invitation_id": invitation.id, "operation": "resend"})
         db.commit()
         raise HTTPException(502, "Invitation email delivery failed. Check the mail configuration and try again.")
-    return {"invitation_status": "sent" if get_settings().smtp_host else "development_link", "expires_at": invitation.expires_at,
-            "activation_url": link if not get_settings().smtp_host and get_settings().environment == "development" else None}
+    if handoff_enabled:
+        response.headers["Cache-Control"] = "no-store"
+    activation_url = link if handoff_enabled or (not settings.smtp_host and environment == "development") else None
+    invitation_status = "activation_handoff" if handoff_enabled else "sent" if settings.smtp_host else "development_link"
+    return {"invitation_status": invitation_status, "expires_at": invitation.expires_at, "activation_url": activation_url}
 
 
 @router.get("/admin/users")

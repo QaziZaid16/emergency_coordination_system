@@ -16,6 +16,7 @@ if (apiBaseUrl) {
   if (
     url.protocol !== 'https:' ||
     !url.hostname ||
+    (url.pathname !== '/' && url.pathname !== '') ||
     url.username ||
     url.password ||
     url.search ||

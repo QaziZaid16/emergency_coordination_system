@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.database import SessionLocal
 from app.models import User
 from app.provision_admin import (
+    validate_admin_provisioning_target,
     provision_super_admin,
     validate_generated_credentials_target,
     write_credentials_file,
@@ -83,3 +84,9 @@ def test_generated_credentials_are_limited_to_development_sqlite():
         validate_generated_credentials_target("production", "postgresql+psycopg://db")
     with pytest.raises(SystemExit, match="development SQLite"):
         validate_generated_credentials_target("development", "postgresql+psycopg://db")
+
+
+def test_staging_admin_provisioning_requires_postgresql():
+    validate_admin_provisioning_target("staging", "postgresql+psycopg://db")
+    with pytest.raises(SystemExit, match="Staging and production"):
+        validate_admin_provisioning_target("staging", "sqlite:///./staging.db")

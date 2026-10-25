@@ -1,9 +1,11 @@
+import re
 from functools import lru_cache
 from urllib.parse import urlsplit
 
 from pydantic import Field
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 
 class Settings(BaseSettings):
@@ -19,6 +21,7 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from: str = ""
     environment: str = "development"
+    staging_responder_invitation_handoff: bool = False
     ai_provider: str = "none"
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
@@ -39,6 +42,25 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production(self):
+        mode = self.environment.strip().casefold()
+        if mode not in {"development", "test", "staging", "production"}:
+            raise ValueError(
+                "ENVIRONMENT must be development, test, staging, or production"
+            )
+        if self.environment != mode:
+            self.environment = mode
+        provider = self.ai_provider.strip().casefold()
+        if provider not in {"", "none", "off", "openrouter", "openai_compatible"}:
+            raise ValueError("AI_PROVIDER is not a supported provider")
+        self.ai_provider = provider
+        if self.staging_responder_invitation_handoff and mode != "staging":
+            raise ValueError(
+                "Staging responder invitation handoff is available only in staging mode"
+            )
+        if self.staging_responder_invitation_handoff and self.smtp_host:
+            raise ValueError(
+                "Staging responder invitation handoff requires SMTP to remain disabled"
+            )
         if self.ai_provider.casefold() == "openrouter":
             provider_url = urlsplit(self.openrouter_base_url)
             if (
@@ -51,10 +73,27 @@ class Settings(BaseSettings):
                 or provider_url.fragment
             ):
                 raise ValueError("OpenRouter requires a server-side key and HTTPS base URL")
-        if self.environment.lower() != "production":
+        if mode not in {"production", "staging"}:
             return self
-        if not self.database_url.startswith("postgresql+psycopg://"):
-            raise ValueError("Production requires a durable PostgreSQL DATABASE_URL")
+        if re.search(r"%(?![0-9a-fA-F]{2})", self.database_url):
+            raise ValueError(
+                "Production and staging require a valid PostgreSQL DATABASE_URL"
+            )
+        try:
+            database_url = make_url(self.database_url)
+        except Exception:
+            raise ValueError(
+                "Production and staging require a valid PostgreSQL DATABASE_URL"
+            ) from None
+        if (
+            database_url.drivername != "postgresql+psycopg"
+            or not database_url.host
+            or not database_url.database
+            or not database_url.username
+        ):
+            raise ValueError(
+                "Production and staging require a complete PostgreSQL DATABASE_URL"
+            )
         origins = self.cors_origin_list
         if not origins or any(not origin.startswith("https://") for origin in origins):
             raise ValueError("Production CORS_ORIGINS must list HTTPS dashboard origins")
@@ -90,6 +129,8 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
+    if "environment" not in settings.model_fields_set:
+        raise RuntimeError("ENVIRONMENT must be explicitly configured")
     if settings.environment != "test" and len(settings.jwt_secret) < 32:
         raise RuntimeError("JWT_SECRET must contain at least 32 characters")
     return settings

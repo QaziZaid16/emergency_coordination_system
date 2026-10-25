@@ -1581,36 +1581,25 @@ class _AdminPortalState extends State<AdminPortal> {
   }
 
   Future<void> createResponder() async {
-    final name = TextEditingController(),
-        email = TextEditingController(),
-        password = TextEditingController(),
-        skills = TextEditingController();
     final values = await showDialog<Map<String, String>>(
       context: context,
       builder: (context) => _FormDialog(
-        title: 'Create responder account',
+        title: 'Invite responder',
         fields: [
-          ('Name', name),
-          ('Email', email),
-          ('Temporary password · 12+ chars', password),
-          ('Capabilities · comma separated', skills),
+          ('Name', ''),
+          ('Email', ''),
+          ('Capabilities · comma separated', ''),
         ],
       ),
     );
-    name.dispose();
-    email.dispose();
-    password.dispose();
-    skills.dispose();
     if (values == null) return;
     try {
-      await widget.api.post(
-        '/admin/users',
+      final invitation = await widget.api.post(
+        '/admin/invitations/responders',
         widget.session,
         body: {
           'display_name': values['Name'],
           'email': values['Email'],
-          'password': values['Temporary password · 12+ chars'],
-          'role': 'responder',
           'capabilities': (values['Capabilities · comma separated'] ?? '')
               .split(',')
               .map((s) => s.trim())
@@ -1619,25 +1608,47 @@ class _AdminPortalState extends State<AdminPortal> {
         },
       );
       await refresh();
+      if (!mounted) return;
+      final activationUrl = invitation['activation_url'];
+      if (activationUrl is String && activationUrl.isNotEmpty) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Responder invitation ready'),
+            content: SelectableText(activationUrl),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        final delivered = invitation['invitation_status'] == 'sent';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              delivered
+                  ? 'Invitation email sent.'
+                  : 'Responder invitation created.',
+            ),
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
     }
   }
 
   Future<void> createResource() async {
-    final name = TextEditingController(),
-        kind = TextEditingController(),
-        quantity = TextEditingController(text: '1');
     final values = await showDialog<Map<String, String>>(
       context: context,
       builder: (context) => _FormDialog(
         title: 'Add operational resource',
-        fields: [('Name', name), ('Type', kind), ('Quantity', quantity)],
+        fields: [('Name', ''), ('Type', ''), ('Quantity', '1')],
       ),
     );
-    name.dispose();
-    kind.dispose();
-    quantity.dispose();
     if (values == null) return;
     try {
       await widget.api.post(
@@ -1702,21 +1713,17 @@ class _AdminPortalState extends State<AdminPortal> {
   }
 
   Future<void> editResource(Map<String, dynamic> resource) async {
-    final name = TextEditingController(text: resource['name'].toString());
-    final kind = TextEditingController(text: resource['kind'].toString());
-    final quantity = TextEditingController(
-      text: resource['quantity'].toString(),
-    );
     final values = await showDialog<Map<String, String>>(
       context: context,
       builder: (context) => _FormDialog(
         title: 'Edit resource',
-        fields: [('Name', name), ('Type', kind), ('Quantity', quantity)],
+        fields: [
+          ('Name', resource['name'].toString()),
+          ('Type', resource['kind'].toString()),
+          ('Quantity', resource['quantity'].toString()),
+        ],
       ),
     );
-    name.dispose();
-    kind.dispose();
-    quantity.dispose();
     if (values == null) return;
     try {
       await widget.api.patch(
@@ -2365,7 +2372,7 @@ class _AdminResponders extends StatelessWidget {
       FilledButton.icon(
         onPressed: onAdd,
         icon: const Icon(Icons.person_add_alt),
-        label: const Text('Create responder account'),
+        label: const Text('Invite responder'),
       ),
       const SizedBox(height: 10),
       for (final raw in rows)
@@ -3521,18 +3528,43 @@ class _EmptyPanel extends StatelessWidget {
   );
 }
 
-class _FormDialog extends StatelessWidget {
+class _FormDialog extends StatefulWidget {
   const _FormDialog({required this.title, required this.fields});
   final String title;
-  final List<(String, TextEditingController)> fields;
+  final List<(String, String)> fields;
+
+  @override
+  State<_FormDialog> createState() => _FormDialogState();
+}
+
+class _FormDialogState extends State<_FormDialog> {
+  late final List<(String, TextEditingController)> _fields;
+
+  @override
+  void initState() {
+    super.initState();
+    _fields = [
+      for (final field in widget.fields)
+        (field.$1, TextEditingController(text: field.$2)),
+    ];
+  }
+
+  @override
+  void dispose() {
+    for (final field in _fields) {
+      field.$2.dispose();
+    }
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: Text(title),
+    title: Text(widget.title),
     content: SingleChildScrollView(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          for (final field in fields)
+          for (final field in _fields)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: TextField(
@@ -3550,7 +3582,7 @@ class _FormDialog extends StatelessWidget {
       ),
       FilledButton(
         onPressed: () => Navigator.pop(context, {
-          for (final field in fields) field.$1: field.$2.text.trim(),
+          for (final field in _fields) field.$1: field.$2.text.trim(),
         }),
         child: const Text('Save'),
       ),

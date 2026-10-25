@@ -278,6 +278,93 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('admin responder creation uses invitation and displays handoff', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    http.Request? invitationRequest;
+    const activationUrl =
+        'https://staging.example.test/activate.html#token=synthetic-test-token';
+    final api = ApiClient(
+      baseUrl: 'https://api.example.test',
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/admin/invitations/responders')) {
+          invitationRequest = request;
+          return http.Response(
+            jsonEncode({
+              'user_id': 'responder-1',
+              'email': 'responder@example.test',
+              'invitation_status': 'activation_handoff',
+              'activation_url': activationUrl,
+            }),
+            201,
+          );
+        }
+        if (request.url.path.endsWith('/dashboard')) {
+          return http.Response('{}', 200);
+        }
+        if (request.url.path.endsWith('/incidents')) {
+          return http.Response('[]', 200);
+        }
+        return http.Response('[]', 200);
+      }),
+    );
+    final session = ApiSession(
+      token: 'admin-token',
+      expiresAt: DateTime.now().add(const Duration(hours: 1)),
+      sessionExpiresAt: DateTime.now().add(const Duration(days: 1)),
+      user: {'id': 'admin-1', 'email': 'admin@example.test', 'role': 'admin'},
+      rememberMe: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: OpsTheme.light,
+        home: AdminPortal(api: api, session: session, onLogout: () {}),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Responders'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Invite responder'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Name'),
+      'Demo Responder',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Email'),
+      'responder@example.test',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Capabilities · comma separated'),
+      'medical, first aid',
+    );
+    expect(find.textContaining('password'), findsNothing);
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(invitationRequest, isNotNull);
+    expect(invitationRequest!.method, 'POST');
+    expect(invitationRequest!.url.path, '/api/v1/admin/invitations/responders');
+    final payload = jsonDecode(invitationRequest!.body) as Map<String, dynamic>;
+    expect(payload, {
+      'display_name': 'Demo Responder',
+      'email': 'responder@example.test',
+      'capabilities': ['medical', 'first aid'],
+    });
+    expect(payload.containsKey('password'), isFalse);
+    expect(payload.containsKey('role'), isFalse);
+    expect(find.text('Responder invitation ready'), findsOneWidget);
+    expect(find.text(activationUrl), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'remembered user restores to the user portal and logout returns to unified sign in',
     (tester) async {

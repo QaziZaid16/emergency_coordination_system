@@ -41,6 +41,16 @@ def validate_generated_credentials_target(environment: str, database_url: str) -
         )
 
 
+def validate_admin_provisioning_target(environment: str, database_url: str) -> None:
+    mode = environment.lower()
+    if mode not in {"development", "staging", "production"}:
+        raise SystemExit("Admin provisioning is disabled in this environment.")
+    if mode in {"staging", "production"} and not database_url.startswith(
+        "postgresql+psycopg://"
+    ):
+        raise SystemExit("Staging and production admin provisioning require PostgreSQL.")
+
+
 def provision_super_admin(
     db: Session, *, email: str, display_name: str, password: str
 ) -> User:
@@ -73,12 +83,7 @@ def provision_super_admin(
 
 def main() -> None:
     settings = get_settings()
-    if settings.environment.lower() not in {"development", "production"}:
-        raise SystemExit("Admin provisioning is disabled in this environment.")
-    if settings.environment.lower() == "production" and not settings.database_url.startswith(
-        "postgresql+psycopg://"
-    ):
-        raise SystemExit("Production admin provisioning requires PostgreSQL.")
+    validate_admin_provisioning_target(settings.environment, settings.database_url)
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--email", required=True)

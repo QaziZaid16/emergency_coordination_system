@@ -65,6 +65,18 @@ class AccountInvitation(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class LoginAttemptBucket(Base):
+    """Shared, privacy-preserving login attempt window keyed by email digest."""
+
+    __tablename__ = "login_attempt_buckets"
+    __table_args__ = (Index("ix_login_attempt_buckets_window", "window_started_at"),)
+    identifier_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    window_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class Incident(Base):
     __tablename__ = "incidents"
     __table_args__ = (
