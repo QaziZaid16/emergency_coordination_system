@@ -1,7 +1,8 @@
 import { FormEvent, useState } from 'react';
 import { hasConfiguredApiOrigin, configuredApiOrigin } from '../api/config';
 import { request } from '../api/client';
-const logoUrl = '/brand/official-logo.svg';
+import { IERCS_ICON } from '../branding';
+const logoUrl = IERCS_ICON;
 
 export function takeInvitationToken(location: Pick<Location, 'pathname' | 'search' | 'hash'>, history: Pick<History, 'replaceState'>): string {
   const query = new URLSearchParams(location.search);
@@ -82,8 +83,8 @@ export function Activation({ token }: { token:string }) {
   }
 
   return <main className="login-screen"><section className="login-card" aria-labelledby="activation-title">
-    <img className="login-logo" src={logoUrl} alt="Emergency Coordination" />
-    <p className="eyebrow">RESPONDER ONBOARDING</p>
+    <img className="login-logo" src={logoUrl} alt="IERCS" />
+    <p className="eyebrow">IERCS · RESPONDER ONBOARDING</p>
     <h1 id="activation-title">Activate your account</h1>
     <p className="muted" role="status" aria-live="polite">{status}</p>
     {token && !complete && (configured || localActivationPage()) && <form className="activation-form" onSubmit={submit}>

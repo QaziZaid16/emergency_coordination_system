@@ -3,7 +3,8 @@ import { configuredApiOrigin } from '../api/config';
 import { ApiError, request } from '../api/client';
 import { Account, clearSession, hasPermission, readSession, saveSession, Session, signIn, signOut, verifySession } from '../auth/session';
 import { filterIncidents } from '../features/incidents/filter';
-const logoUrl = '/brand/official-logo.svg';
+import { IERCS_ICON } from '../branding';
+const logoUrl = IERCS_ICON;
 
 type Row = Record<string, any>;
 type OverviewModel = { dashboard:Row; incidents:Row[]; responders:Row[]; notifications:Row[]; activity:Row[]; analytics:Row|null };
@@ -157,9 +158,9 @@ export function Dashboard() {
     return () => { document.removeEventListener('keydown', handleKey); previous?.focus?.(); };
   }, [dialog]);
 
-  if (!session && configuration.error) return <main className="login-screen"><section className="login-card configuration-card"><img className="login-logo" src={logoUrl} alt="Emergency Coordination"/><p className="eyebrow">EMERGENCY COORDINATION</p><h1>Dashboard unavailable</h1><p className="error" role="alert">{configuration.error}</p></section></main>;
+  if (!session && configuration.error) return <main className="login-screen"><section className="login-card configuration-card"><img className="login-logo" src={logoUrl} alt="IERCS"/><p className="eyebrow">IERCS · EMERGENCY COORDINATION</p><h1>Dashboard unavailable</h1><p className="error" role="alert">{configuration.error}</p></section></main>;
   if (!session) return <main className="login-screen"><form className="login-card" onSubmit={doLogin}>
-    <img className="login-logo" src={logoUrl} alt="Emergency Coordination"/><p className="eyebrow">EMERGENCY COORDINATION</p><h1>Operations center</h1><p className="muted">Sign in with an authorized administrator account.</p>
+    <img className="login-logo" src={logoUrl} alt="IERCS"/><p className="eyebrow">IERCS · EMERGENCY COORDINATION</p><h1>Operations center</h1><p className="muted">Sign in with an authorized administrator account.</p>
     <label>Email<input name="email" type="email" autoComplete="username" required /></label><label>Password<input name="password" type="password" autoComplete="current-password" minLength={12} required /></label>
     {error&&<p className="error" role="alert">{error}</p>}<Button className="primary" disabled={busy}>{busy?'Signing in…':'Sign in'}</Button>
     <small>Session is limited to this browser tab and verified with the service on reload.</small>
@@ -243,10 +244,10 @@ export function Dashboard() {
   return <div className="shell">
     <aside className={`sidebar${mobileMenuOpen?' menu-open':''}`}>
       <div className="sidebar-top">
-        <a className="mobile-brand" href="#overview" onClick={event=>{event.preventDefault();openPage('overview')}}><img src={logoUrl} alt=""/>EMERGENCY COORDINATION</a>
+        <a className="mobile-brand" href="#overview" onClick={event=>{event.preventDefault();openPage('overview')}}><img src={logoUrl} alt=""/>IERCS</a>
         <Button className="icon-button" aria-label={mobileMenuOpen?'Close navigation':'Open navigation'} aria-expanded={mobileMenuOpen} onClick={()=>setMobileMenuOpen(value=>!value)}>{mobileMenuOpen?'×':'☰'}</Button>
       </div>
-      <a className="brand" href="#overview" onClick={event=>{event.preventDefault();openPage('overview')}}><img src={logoUrl} alt=""/><span><b>Emergency Coordination</b><small>Operations center</small></span></a>
+      <a className="brand" href="#overview" onClick={event=>{event.preventDefault();openPage('overview')}}><img src={logoUrl} alt=""/><span><b>IERCS</b><small>Emergency coordination</small></span></a>
       <div className="workspace-chip"><span className="workspace-icon" aria-hidden="true">EC</span><span>Emergency operations<small>Coordination workspace</small></span></div>
       <nav aria-label="Operations pages"><span className="nav-caption">Operations</span>{visible.map(item=><Fragment key={item}>{item==='users'&&<span className="nav-caption">Administration</span>}<button className={page===item?'nav-item active':'nav-item'} aria-current={page===item?'page':undefined} onClick={()=>openPage(item)}><span className="nav-icon"><NavIcon page={item}/></span>{labels[item]}</button></Fragment>)}</nav>
       <div className="sidebar-foot"><span className="avatar">{session.account.display_name.split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase()}</span><span><b>{session.account.display_name}</b><small>{session.account.role==='super_admin'?'Super Admin':'Co-Admin'}</small></span><Button className="icon-button" aria-label="Sign out" onClick={()=>void logout()}>↗</Button></div>

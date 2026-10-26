@@ -38,7 +38,7 @@ class EmergencyCoordinationApp extends StatelessWidget {
   static final api = ApiClient();
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'Emergency Coordination',
+    title: 'IERCS',
     debugShowCheckedModeBanner: false,
     theme: OpsTheme.light,
     home: PortalEntryPage(api: api, trainingStore: trainingStore),

@@ -1,4 +1,4 @@
-# Emergency Coordination System
+# Intelligent Emergency Responder Coordination System (IERCS)
 
 A Flutter mobile client, React coordinator dashboard, and FastAPI service for an **academic emergency-coordination demonstration**.
 

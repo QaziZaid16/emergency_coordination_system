@@ -42,4 +42,23 @@ describe('React website deployment configuration', () => {
     expect(existsSync(path.join(root, 'web/manifest.json'))).toBe(true);
     expect(existsSync(path.join(root, 'web/assets/brand/official-logo.svg'))).toBe(true);
   });
+
+  it('bundles the shared IERCS icon and publishes the configured favicon sizes', () => {
+    const source = path.join(root, 'assets/branding/iercs_app_icon.png');
+    expect(existsSync(source)).toBe(true);
+    expect(readFileSync(path.join(react, 'src/branding.ts'), 'utf8')).toContain(
+      "../../../assets/branding/iercs_app_icon.png",
+    );
+
+    const html = readFileSync(path.join(react, 'index.html'), 'utf8');
+    expect(html).toContain('IERCS · Intelligent Emergency Responder Coordination System');
+    for (const size of [32, 192, 512]) {
+      expect(html).toContain(`/brand/iercs-icon-${size}.png`);
+      expect(existsSync(path.join(root, `web/assets/brand/iercs-icon-${size}.png`))).toBe(true);
+    }
+
+    for (const file of ['src/app/Dashboard.tsx', 'src/app/Activation.tsx']) {
+      expect(readFileSync(path.join(react, file), 'utf8')).toContain('IERCS_ICON');
+    }
+  });
 });

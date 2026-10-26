@@ -14,20 +14,23 @@
   --text-soft: #45463f;
   --muted: #777870;
   --muted-light: #898980;
-  --nav: #171817;
+  --nav: #071a36;
+  --brand-cyan: #17bde8;
+  --brand-cyan-soft: #def7ff;
+  --brand-red: #d92d3f;
   --yellow: #f1ea55;
   --yellow-soft: #fbf8c7;
   --green: #2d7953;
   --green-soft: #e8f6ef;
   --amber: #a46d19;
   --amber-soft: #fbf3df;
-  --red: #b9383c;
+  --red: var(--brand-red);
   --red-soft: #fff0ed;
   --line-soft: #eeece6;
   --radius-control: 8px;
   --radius-panel: 15px;
   --shadow-panel: 0 2px 10px rgba(29, 28, 23, .035);
-  --focus-ring: 0 0 0 3px rgba(119, 113, 27, .28);
+  --focus-ring: 0 0 0 3px rgba(23, 189, 232, .3);
 }
 
 * { box-sizing: border-box; }
@@ -37,12 +40,12 @@ button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .58; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible {
-  outline: 3px solid rgba(119, 113, 27, .45);
+  outline: 3px solid rgba(23, 189, 232, .62);
   outline-offset: 2px;
 }
 .shell { min-height: 100vh; }
 
-/* Charcoal navigation rail with a yellow selected item. */
+/* Midnight navy navigation rail with a restrained cyan selection. */
 .sidebar {
   position: fixed;
   inset: 0 auto 0 0;
@@ -118,10 +121,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   transition: background-color .16s ease, color .16s ease;
 }
 .nav-item:hover { color: #fff; background: rgba(255,255,255,.075); }
-.nav-item.active { color: #191a18; background: var(--yellow); box-shadow: none; }
+.nav-item.active { color: #092443; background: var(--brand-cyan-soft); box-shadow: inset 3px 0 var(--brand-cyan); }
 .nav-icon { display: inline-flex; width: 19px; height: 19px; flex: 0 0 19px; align-items: center; justify-content: center; color: #b9bab0; font-size: 14px; }
 .nav-icon svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.nav-item.active .nav-icon { color: #191a18; }
+.nav-item.active .nav-icon { color: #00769b; }
 .sidebar-foot {
   display: flex;
   align-items: center;
@@ -165,8 +168,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   transition: background-color .16s ease, border-color .16s ease, color .16s ease, transform .16s ease;
 }
 button:active { transform: translateY(1px); }
-.primary { border-color: #191a18; color: #fff; background: #191a18; }
-.primary:hover { border-color: #333430; background: #333430; }
+.primary { border-color: #071a36; color: #fff; background: #071a36; }
+.primary:hover { border-color: #12315c; background: #12315c; }
 .secondary { border-color: #dedbd4; color: #252622; background: #fff; }
 .secondary:hover { border-color: #ccc8bd; background: #f7f5ee; }
 .quiet, .icon-button { border-color: transparent; color: #4b4c46; background: transparent; }
@@ -268,7 +271,7 @@ tbody tr:hover td { background: #faf9f5; }
 .detail-grid b { color: #30312c; font-size: 10px; }
 .history-row { padding: 10px 0; border-top: 1px solid var(--line-soft); }
 .history-row p { margin: 4px 0; }
-.login-screen { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 100vh; place-items: center; padding: 24px; background: radial-gradient(ellipse at 50% 5%, #f7f3c9 0, transparent 40%), var(--canvas); }
+.login-screen { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 100vh; place-items: center; padding: 24px; background: radial-gradient(ellipse at 50% 5%, #e6f7fc 0, transparent 40%), var(--canvas); }
 .login-card { display: grid; width: min(410px, 100%); max-width: 100%; min-width: 0; gap: 12px; padding: 32px; border: 1px solid #e6e3dc; border-radius: 16px; background: #fff; box-shadow: 0 14px 44px rgba(29,28,23,.09); }
 .login-logo { width: 58px; height: 58px; margin-bottom: 2px; object-fit: contain; }
 .login-card h1 { margin: 0; font-size: 26px; }

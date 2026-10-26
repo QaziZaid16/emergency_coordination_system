@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../data/api_client.dart';
 import '../data/operations_store.dart';
@@ -17,21 +16,16 @@ class CoordinationBrandMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Semantics(
     image: true,
-    label: 'Emergency Coordination System logo',
+    label: 'IERCS app icon',
     child: ClipRRect(
       borderRadius: BorderRadius.circular(size * .22),
       child: ColoredBox(
         color: OpsColors.surfaceRaised,
-        child: SizedBox.square(
-          dimension: size,
-          child: Center(
-            child: SvgPicture.asset(
-              'assets/brand/official-logo.svg',
-              width: size * .52,
-              height: size * .70,
-              fit: BoxFit.contain,
-            ),
-          ),
+        child: Image.asset(
+          'assets/branding/iercs_app_icon.png',
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
         ),
       ),
     ),
@@ -303,7 +297,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                       const SizedBox(width: 12),
                       const Expanded(
                         child: Text(
-                          'Emergency Coordination',
+                          'IERCS',
                           style: TextStyle(fontWeight: FontWeight.w800),
                         ),
                       ),

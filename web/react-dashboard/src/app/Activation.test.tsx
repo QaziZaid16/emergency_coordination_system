@@ -36,6 +36,7 @@ describe('responder invitation activation', () => {
 
   it('does not show a password form when the invitation token is missing', () => {
     render(<Activation token="" />);
+    expect(screen.getByRole('img', { name: 'IERCS' })).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent(/invitation link is incomplete/i);
     expect(screen.queryByRole('button', { name: 'Activate account' })).not.toBeInTheDocument();
   });

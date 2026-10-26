@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:http/testing.dart';
 import 'package:http/http.dart' as http;
 import 'package:emergency_coordination_system/data/api_client.dart';
@@ -610,7 +609,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('official SVG brand mark renders with the light design system', (
+  testWidgets('IERCS app icon renders with the light design system', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -623,12 +622,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byType(SvgPicture), findsOneWidget);
-    expect(
-      find.bySemanticsLabel('Emergency Coordination System logo'),
-      findsOneWidget,
-    );
+    expect(find.byType(Image), findsOneWidget);
+    expect(find.bySemanticsLabel('IERCS app icon'), findsOneWidget);
     expect(OpsTheme.light.brightness, Brightness.light);
+    expect(OpsColors.primary, const Color(0xFF071A36));
+    expect(OpsColors.accent, const Color(0xFF007A9B));
     expect(tester.takeException(), isNull);
   });
 

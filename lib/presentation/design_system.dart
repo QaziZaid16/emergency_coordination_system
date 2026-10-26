@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Mobile tokens sampled from the finalized admin website theme.
+/// Mobile tokens for the shared IERCS navy/cyan identity and neutral surfaces.
 abstract final class OpsColors {
   static const ink = Color(0xFF191A18);
   static const inkSoft = Color(0xFF45463F);
@@ -10,19 +10,19 @@ abstract final class OpsColors {
   static const surface = Color(0xFFFFFFFF);
   static const surfaceRaised = Color(0xFFF6F5F1);
   static const line = Color(0xFFE6E3DC);
-  static const primary = Color(0xFF191A18);
-  static const primaryDark = Color(0xFF191A18);
-  static const primaryWash = Color(0xFFFBF8C7);
-  static const accent = Color(0xFFD8CF45);
-  static const accentWash = Color(0xFFFBF8C7);
+  static const primary = Color(0xFF071A36);
+  static const primaryDark = Color(0xFF06142B);
+  static const primaryWash = Color(0xFFE3F7FC);
+  static const accent = Color(0xFF007A9B);
+  static const accentWash = Color(0xFFDFF7FF);
   static const success = Color(0xFF2D7953);
   static const successWash = Color(0xFFEAF3E8);
   static const warning = Color(0xFFA46D19);
   static const warningWash = Color(0xFFFBF2D9);
-  static const critical = Color(0xFFB9383C);
+  static const critical = Color(0xFFD92D3F);
   static const criticalWash = Color(0xFFFFF0ED);
-  static const blue = Color(0xFF809B68);
-  static const blueWash = Color(0xFFF0F3EA);
+  static const blue = Color(0xFF007A9B);
+  static const blueWash = Color(0xFFEAF9FD);
 }
 
 abstract final class OpsSpace {
