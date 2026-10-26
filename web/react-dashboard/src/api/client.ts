@@ -6,15 +6,16 @@ export class ApiError extends Error {
 
 export async function request<T>(origin: string, path: string, options: ApiOptions = {}): Promise<T> {
   const { token, headers: supplied, ...init } = options;
+  const isFormData = typeof FormData !== 'undefined' && init.body instanceof FormData;
   let response: Response;
   try {
     response = await fetch(`${origin}/api/v1${path}`, {
       ...init,
       redirect: 'error',
-      headers: { ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...Object.fromEntries(new Headers(supplied).entries()) },
+      headers: { ...(init.body && !isFormData ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...Object.fromEntries(new Headers(supplied).entries()) },
     });
   } catch {
-    throw new ApiError('Could not reach the coordination service. Check the API origin and connection.', 0);
+    throw new ApiError('Could not reach the coordination service. Check your connection and try again.', 0);
   }
   if (response.status === 204) return null as T;
   const body = await response.json().catch(() => ({} as { detail?: unknown }));

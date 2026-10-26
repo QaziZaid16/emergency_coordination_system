@@ -1,10 +1,12 @@
 {
-  "buildCommand": "node scripts/build_web_config.mjs --required",
-  "outputDirectory": "web",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/", "destination": "/admin/index.html" },
-    { "source": "/index.html", "destination": "/admin/index.html" },
-    { "source": "/admin", "destination": "/admin/index.html" },
-    { "source": "/activate", "destination": "/activate.html" }
+    { "source": "/admin", "destination": "/index.html" },
+    { "source": "/admin/", "destination": "/index.html" },
+    { "source": "/admin/:path*", "destination": "/index.html" },
+    { "source": "/activate", "destination": "/index.html" },
+    { "source": "/activate.html", "destination": "/index.html" }
   ]
 }

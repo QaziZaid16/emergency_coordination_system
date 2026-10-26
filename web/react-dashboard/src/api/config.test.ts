@@ -3,5 +3,11 @@ import { validateApiOrigin } from './config';
 
 describe('API origin validation', () => {
   it('accepts a real HTTPS origin and strips its trailing slash', () => expect(validateApiOrigin('https://api.coordination-services.org/')).toBe('https://api.coordination-services.org'));
+  it('allows loopback HTTP only when explicitly enabled for local development', () => {
+    expect(validateApiOrigin('http://127.0.0.1:8000', true)).toBe('http://127.0.0.1:8000');
+    expect(validateApiOrigin('http://localhost:8000', true)).toBe('http://localhost:8000');
+    expect(() => validateApiOrigin('http://api.coordination-services.org', true)).toThrow();
+    expect(() => validateApiOrigin('http://127.0.0.1:8000/api', true)).toThrow();
+  });
   it.each(['http://api.example.org','https://user:pass@api.coordination-services.org','https://api.coordination-services.org/path','https://api.coordination-services.org/?x=1','https://api.coordination-services.org/#x','https://api.example.org','https://your-api-host.invalid'])('rejects %s', value => expect(() => validateApiOrigin(value)).toThrow());
 });

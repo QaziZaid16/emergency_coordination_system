@@ -1,0 +1,12 @@
+{
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/admin", "destination": "/index.html" },
+    { "source": "/admin/", "destination": "/index.html" },
+    { "source": "/admin/:path*", "destination": "/index.html" },
+    { "source": "/activate", "destination": "/index.html" },
+    { "source": "/activate.html", "destination": "/index.html" }
+  ]
+}

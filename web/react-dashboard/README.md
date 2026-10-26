@@ -1,24 +1,35 @@
-# Isolated React staging dashboard
+# React website
 
-This Vite + React + TypeScript app is isolated from the static dashboard at `web/admin/`, the Flutter Web entry point at `web/index.html`, the root Vercel rewrites, and responder activation hosting. It calls the existing FastAPI `/api/v1` routes directly; it adds no backend endpoints.
+`web/react-dashboard/` is the only maintained website frontend. It is a Vite, React, and TypeScript application that uses the existing FastAPI `/api/v1` contracts. The Flutter client remains separate; Flutter Web continues to build into `build/web/` from `web/index.html`.
 
 ## Local development
 
-1. Copy `.env.example` to `.env.local` and set `VITE_ECS_API_ORIGIN` to a real HTTPS API origin (origin only: no credentials, path, query, or fragment).
-2. From `web/react-dashboard/`, run `npm ci` after checkout, then `npm run dev`.
-3. Open the local Vite URL shown by the command. Vite does not configure a backend proxy; the API must allow the local development origin through its existing CORS configuration.
-4. Run `npm test` and `VITE_ECS_API_ORIGIN=https://api.coordination-services.org npm run build` to verify tests and a production build. Use your actual service origin in a real deployment; example and placeholder domains are rejected.
+```sh
+npm ci --prefix web/react-dashboard
+npm run dev --prefix web/react-dashboard
+```
 
-The app intentionally uses `sessionStorage`, matching the prior dashboard's tab-scoped session behavior. It verifies a stored session with `GET /auth/me` on reload, clears it on a `401`, and does not persist a refresh token. Browser storage cannot provide the same protection as an HTTP-only cookie against same-origin script compromise; the API remains the authorization boundary. All API calls reject redirects.
+Set `VITE_ECS_API_ORIGIN` in `web/react-dashboard/.env.local` to the API origin (origin only: no credentials, path, query, or fragment). Use the real HTTPS API origin for hosted environments. For local Vite development, HTTP is accepted only for loopback hosts such as `http://127.0.0.1:8000` or `http://localhost:8000`; the backend must allow the local Vite origin through its existing CORS configuration. If the origin is missing or invalid, the dashboard shows a service-configuration message and sends no sign-in request. The login screen accepts only email and password. Hosted invitation activation remains unavailable until the public build has its API origin configured.
 
-## Separate Vercel staging project (manual later step)
+Run the website tests and compile check with:
 
-Create a new Vercel project only after review and separate approval. Set **Root Directory** to `web/react-dashboard`, **Framework Preset** to Vite, **Build Command** to `npm run build`, and **Output Directory** to `dist`. Set `VITE_ECS_API_ORIGIN` in the staging project's build environment to the intended real HTTPS API origin. The value is public browser configuration, never a server secret.
+```sh
+npm test --prefix web/react-dashboard
+VITE_ECS_ALLOW_UNCONFIGURED_BUILD=true npm run build --prefix web/react-dashboard
+```
 
-Do not change the existing Vercel project or its root routes for this staging app. `/activate` remains hosted by the existing project. The backend currently constructs invitation links from its `PUBLIC_APP_URL` and appends `/activate.html#token=...`; ensure staging invitation handoff points to the existing activation host before using it. Provider setup and deployment remain separate, manual actions.
+The `VITE_ECS_ALLOW_UNCONFIGURED_BUILD` override is for compile-only CI checks. Never set it for a Vercel deployment. The production build requires a real HTTPS `VITE_ECS_API_ORIGIN`; that public value belongs in the Vercel project environment, not in Git. The build output is `web/react-dashboard/dist/`, separate from Flutter's `build/web/`.
 
-## Verified implementation scope and gaps
+## Routes and invitation activation
 
-Implemented UI workflows use the current backend contracts: login/logout/me, dashboard, incidents/detail/updates/report, recommendations and assignment/reassignment, resolve/cancel/report review, analysis retry, responder list/invite/resend/capability/availability/account activation, user listing/account activation, resource list/create/update, analytics/export, audit, co-admin CRUD/permission updates, notifications/read state, and automatic assignment policy. Contract definitions are in `backend/app/api.py` and request schemas in `backend/app/schemas.py`.
+The Vercel project Root Directory is `web/react-dashboard`; its install, build, and output paths are relative to that directory (`npm ci`, `npm run build`, `dist`). `web/react-dashboard/vercel.json` supplies those project-root settings and route rewrites. The app copies the shared logo from `web/assets/` during the Vite build, so enable Vercel's **Include source files outside of the Root Directory** setting. `/` and `/admin` load the coordinator dashboard. `/activate` and `/activate.html` load the React invitation screen to preserve existing links generated by the API (`PUBLIC_APP_URL/activate.html#token=...`). The activation page reads fragment tokens first, supports outstanding query-token links, removes the token from browser history before rendering, and sends the existing `POST /api/v1/auth/accept-invitation` contract. API redirects are rejected by the shared client.
 
-The dashboard intentionally does not create ordinary user accounts: although `POST /admin/users` exists, the backend's visible `create_account` implementation rejects responder creation through that route, and role/permission semantics for creating ordinary users are not part of the current dashboard workflow. Incident details display persisted analysis and report fields returned by the service, with a human-review label; no AI behavior is generated in the browser. Push notifications, email delivery, live maps/tracking, and real-time updates are not claimed.
+The activation flow uses the deployment's public `VITE_ECS_API_ORIGIN`; it does not accept a manually entered API origin on a hosted page. For local loopback development only, the activation screen permits entering a loopback API URL. Backend `PUBLIC_APP_URL`, Vercel's website origin, and backend `CORS_ORIGINS` must be set to the actual matching deployment origins before sending invitations.
+
+## Implemented workflows and boundaries
+
+The UI calls existing contracts for session login/verification/logout, dashboard and analytics, incident lists/details/updates/reports, responder recommendations and assignment, incident transitions/review/analysis retry, responder invitations/management, user status/history, resources, audit, notifications, co-admin permissions, and Super Admin automation policy. API authorization remains authoritative. It does not create ordinary user accounts because that is not a supported coordinator workflow. It does not claim push notification delivery, live tracking, forecasts, or emergency dispatch.
+
+The Historical/Public Data page includes a Super Admin-only upload for the owner-provided `database.csv.zip` and `earthquake_1995-2023.csv` files. The API validates both files and imports into the existing historical tables in one transaction. Uploaded data is labeled user-provided and not independently verified. It remains separate from operational incidents, responder assignments, alerts, and dispatch. The import summary reports inserted, updated, skipped, duplicate, and rejected rows; see the [backend dataset note](../../docs/architecture/public-disaster-data.md) for mapping and limits.
+
+No provider project or deployment is configured or verified in this repository. See [hosting operations](../../docs/operations/hosting.md) for the separate manual setup required for staging.

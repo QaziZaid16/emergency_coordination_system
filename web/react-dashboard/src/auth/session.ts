@@ -10,7 +10,7 @@ export function clearSession(storage: Storage = sessionStorage) { storage.remove
 export function readSession(storage: Storage = sessionStorage): Session | null {
   try {
     const value = JSON.parse(storage.getItem(KEY) || 'null');
-    return value?.origin && value?.token && value?.account ? { ...value, origin: validateApiOrigin(value.origin) } : null;
+    return value?.origin && value?.token && value?.account ? { ...value, origin: validateApiOrigin(value.origin, import.meta.env.DEV) } : null;
   } catch { clearSession(storage); return null; }
 }
 export function hasPermission(account: Account, permission: string): boolean {
