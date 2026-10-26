@@ -458,12 +458,19 @@ class ApiClient {
           path != '/auth/me') {
         sessionExpired.value = true;
       }
-      if (response.statusCode < 500) {
+      if (response.statusCode < 500 && response.statusCode != 422) {
         try {
           final data = jsonDecode(response.body) as Map;
           final detail = data['detail'];
           message = detail is String ? detail : message;
         } catch (_) {}
+      }
+      if (response.statusCode == 422) {
+        message = switch (path) {
+          '/auth/register' => 'Check your name and email, and use a password between 12 and 128 characters.',
+          '/auth/login' => 'Check your email and password. Passwords must be between 12 and 128 characters.',
+          _ => 'Some submitted information is invalid. Review the fields and try again.',
+        };
       }
       throw ApiException(message, statusCode: response.statusCode);
     } on ApiException {

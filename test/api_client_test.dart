@@ -41,6 +41,113 @@ Map<String, dynamic> authResponse({String role = 'admin'}) => {
 };
 
 void main() {
+  group('public account registration', () {
+    test('sends the documented fields and never sends a role', () async {
+      final client = ApiClient(
+        baseUrl: 'https://api.example.test',
+        storage: MemorySessionStorage(),
+        client: MockClient((request) async {
+          expect(request.method, 'POST');
+          expect(request.url.path, '/api/v1/auth/register');
+          expect(jsonDecode(request.body), {
+            'display_name': 'Sample User',
+            'email': 'sample@example.org',
+            'password': 'Synthetic-Password-1234',
+            'remember_me': false,
+          });
+          return http.Response(jsonEncode(authResponse(role: 'user')), 201);
+        }),
+      );
+
+      final session = await client.registerUser(
+        ' Sample User ',
+        ' sample@example.org ',
+        'Synthetic-Password-1234',
+        rememberMe: false,
+      );
+
+      expect(session.role, 'user');
+      expect(session.rememberMe, isFalse);
+    });
+
+    test(
+      'maps structured validation errors without echoing submitted values',
+      () async {
+        const submittedPassword = 'Synthetic-Password-1234';
+        final client = ApiClient(
+          baseUrl: 'https://api.example.test',
+          storage: MemorySessionStorage(),
+          client: MockClient(
+            (_) async => http.Response(
+              jsonEncode({
+                'detail': [
+                  {
+                    'loc': ['body', 'password'],
+                    'msg': 'String should have at most 128 characters',
+                    'input': submittedPassword,
+                  },
+                ],
+              }),
+              422,
+            ),
+          ),
+        );
+
+        await expectLater(
+          client.registerUser(
+            'Sample User',
+            'sample@example.org',
+            submittedPassword,
+            rememberMe: false,
+          ),
+          throwsA(
+            isA<ApiException>()
+                .having((error) => error.statusCode, 'status', 422)
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains('password between 12 and 128 characters'),
+                )
+                .having(
+                  (error) => error.message,
+                  'message',
+                  isNot(contains(submittedPassword)),
+                ),
+          ),
+        );
+      },
+    );
+
+    test('preserves the safe duplicate-account message from the API', () async {
+      final client = ApiClient(
+        baseUrl: 'https://api.example.test',
+        storage: MemorySessionStorage(),
+        client: MockClient(
+          (_) async => http.Response(
+            jsonEncode({'detail': 'An account with this email already exists'}),
+            409,
+          ),
+        ),
+      );
+
+      await expectLater(
+        client.registerUser(
+          'Sample User',
+          'sample@example.org',
+          'Synthetic-Password-1234',
+          rememberMe: false,
+        ),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.message,
+            'message',
+            'An account with this email already exists',
+          ),
+        ),
+      );
+    });
+  });
+
   group('server error messages', () {
     test('explains service failures without implying a bad password', () async {
       final client = ApiClient(

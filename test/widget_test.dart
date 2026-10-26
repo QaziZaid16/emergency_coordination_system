@@ -65,6 +65,73 @@ void main() {
   });
 
   testWidgets(
+    'registration sends the exact request and signs in after success',
+    (tester) async {
+      ApiSession? signedIn;
+      final api = ApiClient(
+        baseUrl: 'https://api.example.test',
+        storage: _TestSessionStorage(),
+        client: MockClient((request) async {
+          expect(request.method, 'POST');
+          expect(request.url.path, '/api/v1/auth/register');
+          expect(jsonDecode(request.body), {
+            'display_name': 'Sample User',
+            'email': 'sample@example.org',
+            'password': 'Synthetic-Password-1234',
+            'remember_me': false,
+          });
+          final expires = DateTime.now()
+              .toUtc()
+              .add(const Duration(minutes: 30))
+              .toIso8601String();
+          return http.Response(
+            jsonEncode({
+              'access_token': 'synthetic-test-token',
+              'expires_at': expires,
+              'session_expires_at': expires,
+              'refresh_token': null,
+              'user': {
+                'id': 'synthetic-user-id',
+                'email': 'sample@example.org',
+                'display_name': 'Sample User',
+                'role': 'user',
+                'permissions': <String>[],
+              },
+            }),
+            201,
+          );
+        }),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: OpsTheme.light,
+          home: PortalLoginPage(
+            api: api,
+            onSignedIn: (session) => signedIn = session,
+          ),
+        ),
+      );
+      await tester.tap(find.text('Create a user account'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).at(0), ' Sample User ');
+      await tester.enterText(
+        find.byType(TextFormField).at(1),
+        ' sample@example.org ',
+      );
+      await tester.enterText(
+        find.byType(TextFormField).at(2),
+        'Synthetic-Password-1234',
+      );
+      await tester.tap(find.text('Create user account'));
+      await tester.pumpAndSettle();
+
+      expect(signedIn?.role, 'user');
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'missing API does not turn remembered-session startup into an error',
     (tester) async {
       final storage = _TestSessionStorage()

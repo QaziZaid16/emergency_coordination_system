@@ -532,8 +532,15 @@ class _PortalLoginPageState extends State<PortalLoginPage> {
       if (mounted) {
         widget.onSignedIn(value);
       }
-    } catch (e) {
-      if (mounted) setState(() => error = e.toString());
+    } on ApiException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => error =
+              'The service returned an unexpected response. Please retry.',
+        );
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
