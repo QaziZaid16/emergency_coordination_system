@@ -255,6 +255,78 @@ class CoordinationPolicy(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
+class PublicDatasetSync(Base):
+    """Operator-triggered import status; public-source records stay non-operational."""
+
+    __tablename__ = "public_dataset_syncs"
+    source: Mapped[str] = mapped_column(String(32), primary_key=True)
+    dataset_name: Mapped[str | None] = mapped_column(String(120))
+    source_filename: Mapped[str | None] = mapped_column(String(240))
+    provenance: Mapped[str | None] = mapped_column(String(500))
+    geographic_scope: Mapped[str | None] = mapped_column(String(120))
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    range_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    range_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    imported_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    was_limited: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(240))
+
+
+class PublicEarthquake(Base):
+    __tablename__ = "public_earthquakes"
+    source_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_key: Mapped[str] = mapped_column(String(32), default="usgs_earthquake_catalog", nullable=False, index=True)
+    magnitude: Mapped[float] = mapped_column()
+    place: Mapped[str | None] = mapped_column(String(500))
+    title: Mapped[str | None] = mapped_column(String(500))
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    longitude: Mapped[float] = mapped_column()
+    latitude: Mapped[float] = mapped_column()
+    depth_km: Mapped[float | None] = mapped_column()
+    event_url: Mapped[str | None] = mapped_column(String(1000))
+    source_url: Mapped[str] = mapped_column(String(1000))
+    attribution: Mapped[str] = mapped_column(String(240), default="USGS Earthquake Hazards Program")
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    cdi: Mapped[float | None]
+    mmi: Mapped[float | None]
+    alert: Mapped[str | None] = mapped_column(String(24))
+    tsunami: Mapped[bool | None]
+    significance: Mapped[int | None] = mapped_column(Integer)
+    network: Mapped[str | None] = mapped_column(String(32))
+    station_count: Mapped[int | None] = mapped_column(Integer)
+    minimum_distance: Mapped[float | None]
+    azimuthal_gap: Mapped[float | None]
+    magnitude_type: Mapped[str | None] = mapped_column(String(32))
+    location: Mapped[str | None] = mapped_column(String(500))
+    continent: Mapped[str | None] = mapped_column(String(120))
+    country: Mapped[str | None] = mapped_column(String(120))
+
+
+class PublicFemaDeclaration(Base):
+    __tablename__ = "public_fema_declarations"
+    source_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_key: Mapped[str] = mapped_column(String(32), default="fema_disaster_declarations", nullable=False, index=True)
+    disaster_number: Mapped[int] = mapped_column(Integer, index=True)
+    declaration_string: Mapped[str | None] = mapped_column(String(32), index=True)
+    declaration_type: Mapped[str] = mapped_column(String(32), index=True)
+    state: Mapped[str] = mapped_column(String(80), index=True)
+    designated_area: Mapped[str | None] = mapped_column(String(240))
+    incident_type: Mapped[str | None] = mapped_column(String(120), index=True)
+    title: Mapped[str | None] = mapped_column(String(500))
+    incident_begin_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    incident_end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    declaration_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    close_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    individual_assistance: Mapped[bool | None]
+    individuals_households_program: Mapped[bool | None]
+    public_assistance: Mapped[bool | None]
+    hazard_mitigation: Mapped[bool | None]
+    source_url: Mapped[str] = mapped_column(String(1000))
+    attribution: Mapped[str] = mapped_column(String(240), default="FEMA OpenFEMA; not endorsed by FEMA")
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)

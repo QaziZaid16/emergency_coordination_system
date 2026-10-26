@@ -1,4 +1,6 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from email import policy
+from email.parser import BytesParser
 import hashlib
 import hmac
 import re
@@ -13,7 +15,7 @@ from uuid import uuid4
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
-from sqlalchemy import case, delete, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
@@ -22,10 +24,14 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
 from app.dispatch import distance_km, priority_for
-from app.models import AccountInvitation, Assignment, AuditEvent, AuthSession, CoordinationPolicy, Incident, IncidentAnalysis, IncidentReport, IncidentUpdate, LoginAttemptBucket, Notification, ResponderProfile, Resource, User, now_utc
+from app.models import AccountInvitation, Assignment, AuditEvent, AuthSession, CoordinationPolicy, Incident, IncidentAnalysis, IncidentReport, IncidentUpdate, LoginAttemptBucket, Notification, PublicDatasetSync, PublicEarthquake, PublicFemaDeclaration, ResponderProfile, Resource, User, now_utc
 from app.schemas import AssignmentCreate, AutomaticAssignmentPolicyUpdate, AvailabilityUpdate, CoAdminCreate, CopilotQuestion, IncidentCreate, IntakeAnswers, InvitationAccept, LoginRequest, LoginResponse, MessageCreate, RefreshRequest, ReportReview, ResponderInviteCreate, ResponderLocation, ResourceCreate, RewriteRequest, StatusUpdate, UserCreate, UserRegister, UserView
 from app.intelligence import analyze_incident_task, find_duplicate_candidates, rewrite_responder_note
 from app.security import bearer, current_user, encode_access_token, hash_password, hash_refresh_token, issue_token, require_roles, verify_password
+from app.uploaded_public_data import (
+    MAX_UPLOAD_BYTES, UploadedDatasetError, parse_uploaded_earthquakes,
+    parse_uploaded_fema, persist_uploaded_dataset,
+)
 
 router = APIRouter()
 ACTIVE_ASSIGNMENTS = ("Assigned", "Accepted", "En Route", "On Scene")
@@ -719,6 +725,8 @@ def admin_dashboard(_admin: User = Depends(require_roles("admin")), db: Session 
         "responders_unavailable": sum(not item.available for item in responders) - len(active_assignments),
         "resources_total": sum(row.quantity for row in db.scalars(select(Resource)).all()),
         "resources_allocated": sum(row.allocated for row in db.scalars(select(Resource)).all()),
+        "synthetic_demo_records": sum(item.reference.startswith("DEMO-") for item in incidents),
+        "synthetic_data_note": "Synthetic demonstration records are included; they do not represent live emergencies." if any(item.reference.startswith("DEMO-") for item in incidents) else None,
     }
 
 
@@ -787,6 +795,202 @@ def admin_analytics(
         "forecast": None,
         "data_note": "Descriptive metrics from records in the selected period; no forecast or dispatch recommendation.",
     }
+
+
+@router.get("/admin/public-disaster-data")
+def admin_public_disaster_data(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    _admin: User = Depends(require_roles("admin")),
+    db: Session = Depends(get_db),
+):
+    """Read-only historical public datasets, isolated from operational incidents."""
+    if _admin.role == "admin" and "view_reports" not in (_admin.permissions or []):
+        raise HTTPException(403, "Missing permission: view_reports")
+    today = now_utc().date()
+    end_date = end_date or today
+    earliest = db.scalar(select(func.min(PublicEarthquake.event_time)))
+    fema_earliest = db.scalar(select(func.min(PublicFemaDeclaration.declaration_date)))
+    candidates = [value.date() for value in (earliest, fema_earliest) if value is not None]
+    start_date = start_date or (min(candidates) if candidates else end_date - timedelta(days=365 * 10))
+    if start_date > end_date or end_date > today or (end_date - start_date).days > 36525:
+        raise HTTPException(422, "Choose a valid historical date range of at most 100 years ending today or earlier.")
+    start = datetime.combine(start_date, datetime.min.time(), timezone.utc)
+    end = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), timezone.utc)
+    # Import commands are capped too. This query-level ceiling protects API
+    # memory use if an operator imports several separate historical windows.
+    max_rows = 50000
+    earthquakes = db.scalars(
+        select(PublicEarthquake).where(PublicEarthquake.event_time >= start,
+                                       PublicEarthquake.event_time < end)
+        .order_by(PublicEarthquake.event_time.desc()).limit(max_rows)
+    ).all()
+    fema = db.scalars(
+        select(PublicFemaDeclaration).where(PublicFemaDeclaration.declaration_date >= start,
+                                            PublicFemaDeclaration.declaration_date < end)
+        .order_by(PublicFemaDeclaration.declaration_date.desc(), PublicFemaDeclaration.source_id)
+        .limit(max_rows)
+    ).all()
+    earthquake_total = db.scalar(select(func.count()).select_from(PublicEarthquake).where(
+        PublicEarthquake.event_time >= start, PublicEarthquake.event_time < end)) or 0
+    fema_total = db.scalar(select(func.count()).select_from(PublicFemaDeclaration).where(
+        PublicFemaDeclaration.declaration_date >= start, PublicFemaDeclaration.declaration_date < end)) or 0
+    sync_rows = {row.source: row for row in db.scalars(select(PublicDatasetSync)).all()}
+    magnitude_counts = {"<4.0": 0, "4.0–4.9": 0, "5.0–5.9": 0, "6.0+": 0}
+    earthquake_months: dict[str, int] = {}
+    for row in earthquakes:
+        magnitude_counts["<4.0" if row.magnitude < 4 else "4.0–4.9" if row.magnitude < 5 else "5.0–5.9" if row.magnitude < 6 else "6.0+"] += 1
+        key = row.event_time.strftime("%Y-%m")
+        earthquake_months[key] = earthquake_months.get(key, 0) + 1
+    incident_types: dict[str, int] = {}
+    declaration_types: dict[str, int] = {}
+    states: dict[str, int] = {}
+    declaration_years: dict[str, int] = {}
+    for row in fema:
+        for target, value in ((incident_types, row.incident_type or "Unspecified"),
+                              (declaration_types, row.declaration_type), (states, row.state)):
+            target[value] = target.get(value, 0) + 1
+        key = row.declaration_date.strftime("%Y")
+        declaration_years[key] = declaration_years.get(key, 0) + 1
+
+    def sync_metadata(source: str, name: str, url: str | None, scope: str, total: int) -> dict:
+        state = sync_rows.get(source)
+        return {
+            "id": source, "name": state.dataset_name if state and state.dataset_name else name,
+            "url": url, "scope": state.geographic_scope if state and state.geographic_scope else scope,
+            "source_filename": state.source_filename if state else None,
+            "provenance": state.provenance if state else None,
+            "attribution": (state.provenance if state and state.provenance else
+                            "Data provided by USGS Earthquake Hazards Program." if source == "usgs_earthquake_catalog" else "Data from FEMA OpenFEMA; not endorsed by FEMA."),
+            "record_count": total, "imported_count": state.imported_count if state else 0,
+            "range_start": state.range_start if state else None,
+            "range_end": state.range_end if state else None,
+            "was_limited": state.was_limited if state else False,
+            "last_attempt_at": state.last_attempt_at if state else None,
+            "last_success_at": state.last_success_at if state else None,
+            "last_error": state.last_error if state else None,
+        }
+
+    upload_metadata = []
+    for source, name, scope, total in (
+        ("uploaded_earthquakes", "User-provided earthquake records", "Global (as represented in uploaded file)",
+         db.scalar(select(func.count()).select_from(PublicEarthquake).where(PublicEarthquake.source_key == "uploaded_earthquakes", PublicEarthquake.event_time >= start, PublicEarthquake.event_time < end)) or 0),
+        ("uploaded_fema_declarations", "User-provided FEMA-style disaster declarations", "United States (as represented in uploaded file)",
+         db.scalar(select(func.count()).select_from(PublicFemaDeclaration).where(PublicFemaDeclaration.source_key == "uploaded_fema_declarations", PublicFemaDeclaration.declaration_date >= start, PublicFemaDeclaration.declaration_date < end)) or 0),
+    ):
+        state = sync_rows.get(source)
+        if state:
+            upload_metadata.append(sync_metadata(source, name, None, scope, total))
+
+    return {
+        "label": "Historical/Public Disaster Data",
+        "geographic_scope": "USGS: global earthquake catalog · FEMA: United States states and territories",
+        "selected_range": {"start": start_date, "end": end_date},
+        "records_limited": earthquake_total > len(earthquakes) or fema_total > len(fema) or any(row.was_limited for row in sync_rows.values()),
+        "sources": [
+            sync_metadata("usgs_earthquake_catalog", "USGS Earthquake Catalog", "https://earthquake.usgs.gov/fdsnws/event/1/query", "Global", db.scalar(select(func.count()).select_from(PublicEarthquake).where(PublicEarthquake.source_key == "usgs_earthquake_catalog", PublicEarthquake.event_time >= start, PublicEarthquake.event_time < end)) or 0),
+            sync_metadata("fema_disaster_declarations", "FEMA Disaster Declarations Summaries", "https://www.fema.gov/api/open/v2/DisasterDeclarationsSummaries", "United States", db.scalar(select(func.count()).select_from(PublicFemaDeclaration).where(PublicFemaDeclaration.source_key == "fema_disaster_declarations", PublicFemaDeclaration.declaration_date >= start, PublicFemaDeclaration.declaration_date < end)) or 0),
+            *upload_metadata,
+        ],
+        "earthquakes": {
+            "count": earthquake_total, "magnitude_counts": magnitude_counts,
+            "monthly_counts": dict(sorted(earthquake_months.items())),
+            "records": [{"id": row.source_id, "dataset_source": row.source_key, "magnitude": row.magnitude, "place": row.place, "title": row.title,
+                         "event_time": row.event_time, "longitude": row.longitude, "latitude": row.latitude,
+                         "depth_km": row.depth_km, "event_url": row.event_url, "cdi": row.cdi, "mmi": row.mmi,
+                         "alert": row.alert, "tsunami": row.tsunami, "significance": row.significance,
+                         "network": row.network, "station_count": row.station_count,
+                         "minimum_distance": row.minimum_distance, "azimuthal_gap": row.azimuthal_gap,
+                         "magnitude_type": row.magnitude_type, "location": row.location,
+                         "continent": row.continent, "country": row.country, "attribution": row.attribution}
+                        for row in earthquakes],
+        },
+        "fema": {
+            "count": fema_total, "incident_type_counts": dict(sorted(incident_types.items())),
+            "declaration_type_counts": dict(sorted(declaration_types.items())),
+            "state_counts": dict(sorted(states.items())), "yearly_counts": dict(sorted(declaration_years.items())),
+            "records": [{"id": row.source_id, "dataset_source": row.source_key, "disaster_number": row.disaster_number,
+                         "declaration_string": row.declaration_string, "declaration_type": row.declaration_type,
+                         "state": row.state, "designated_area": row.designated_area,
+                         "incident_type": row.incident_type, "title": row.title,
+                         "incident_begin_date": row.incident_begin_date, "incident_end_date": row.incident_end_date,
+                         "declaration_date": row.declaration_date, "close_date": row.close_date,
+                         "individual_assistance": row.individual_assistance,
+                         "individuals_households_program": row.individuals_households_program,
+                         "public_assistance": row.public_assistance, "hazard_mitigation": row.hazard_mitigation,
+                         "attribution": row.attribution} for row in fema],
+        },
+        "data_note": "Historical records only; uploaded files are user-provided and not independently verified. These records are not current emergency reports or dispatch instructions, and the collections are not comprehensive feeds.",
+    }
+
+
+@router.post("/admin/public-disaster-data/import")
+async def import_uploaded_public_datasets(
+    request: Request,
+    admin: User = Depends(require_roles("super_admin")),
+    db: Session = Depends(get_db),
+):
+    """Import the two owner-provided historical files into isolated public tables."""
+    content_type = request.headers.get("content-type", "")
+    if not content_type.lower().startswith("multipart/form-data;"):
+        raise HTTPException(415, "Upload the two dataset files as multipart form data.")
+    max_body = (2 * MAX_UPLOAD_BYTES) + 128 * 1024
+    content_length = request.headers.get("content-length")
+    if content_length and (not content_length.isdigit() or int(content_length) > max_body):
+        raise HTTPException(413, "The combined upload exceeds the safe size limit.")
+    chunks = []
+    total_bytes = 0
+    async for chunk in request.stream():
+        total_bytes += len(chunk)
+        if total_bytes > max_body:
+            raise HTTPException(413, "The combined upload exceeds the safe size limit.")
+        chunks.append(chunk)
+    body = b"".join(chunks)
+    try:
+        message = BytesParser(policy=policy.default).parsebytes(
+            f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("ascii") + body
+        )
+        if not message.is_multipart():
+            raise ValueError
+        parts = {}
+        for part in message.iter_parts():
+            disposition = part.get_content_disposition()
+            field = part.get_param("name", header="content-disposition")
+            filename = part.get_filename()
+            if disposition != "form-data" or field not in {"fema_file", "earthquake_file"} or field in parts or not filename:
+                raise ValueError
+            parts[field] = (filename, part.get_payload(decode=True) or b"")
+        if set(parts) != {"fema_file", "earthquake_file"}:
+            raise ValueError
+        (fema_name, fema_bytes), (earthquake_name, earthquake_bytes) = (parts["fema_file"], parts["earthquake_file"])
+    except (ValueError, UnicodeEncodeError):
+        raise HTTPException(400, "The upload must contain exactly one file for each required dataset.") from None
+    try:
+        if len(fema_bytes) > MAX_UPLOAD_BYTES or len(earthquake_bytes) > MAX_UPLOAD_BYTES:
+            raise UploadedDatasetError("Each uploaded file must be 12 MB or smaller.")
+        # Parse both files before mutating the session. A bad file leaves both datasets unchanged.
+        parsed = [
+            parse_uploaded_fema(fema_bytes, fema_name),
+            parse_uploaded_earthquakes(earthquake_bytes, earthquake_name),
+        ]
+    except UploadedDatasetError as exc:
+        raise HTTPException(422, str(exc)) from None
+    try:
+        results = {}
+        with db.begin_nested():
+            for dataset in parsed:
+                results[dataset["source"]] = persist_uploaded_dataset(db, dataset)
+            db.add(AuditEvent(
+                id=str(uuid4()), actor_id=admin.id, action="public_dataset_import",
+                entity_type="public_dataset", entity_id=str(uuid4()),
+                details={"datasets": jsonable_encoder(results)}, created_at=now_utc(),
+            ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(500, "The datasets could not be imported. No changes were saved.") from None
+    return {"message": "Historical datasets imported.", "results": results,
+            "data_note": "User-provided historical records only. Their origin and authenticity were not independently verified."}
 
 
 @router.post("/admin/copilot")

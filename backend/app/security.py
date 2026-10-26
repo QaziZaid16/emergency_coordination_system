@@ -129,6 +129,8 @@ def require_roles(*roles: str):
                 required = "manage_responders" if "/responders" in path else "manage_users"
             elif "/resources" in path:
                 required = "manage_resources" if method != "GET" else "view_dashboard"
+            elif path == "/api/v1/admin/public-disaster-data" and method == "GET":
+                required = "view_reports"
             elif "/audit" in path:
                 required = "view_audit_logs"
             elif "/analytics" in path:
