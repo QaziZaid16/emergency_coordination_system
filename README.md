@@ -301,6 +301,18 @@ npm run dev --prefix web/react-dashboard
 
 Open the URL Vite prints, normally <http://127.0.0.1:5173/>. Set backend `CORS_ORIGINS` to the exact origin used by the browser. Restart Vite after changing environment values. The login page accepts email/password only and fails closed when API configuration is missing or invalid.
 
+### Keep mobile and dashboard on the same backend
+
+Set both clients to the exact same API service before comparing records:
+
+- React: `VITE_ECS_API_ORIGIN` in `web/react-dashboard/.env.local`.
+- Flutter: `--dart-define=API_BASE_URL=...` when running or building the app.
+- On a USB-connected phone using `127.0.0.1`, create an ADB reverse mapping for that same API port (see below).
+
+A matching port alone does not prove two clients share a database. `DATABASE_URL=sqlite:///./data/coordination.db` is relative to the backend process working directory; when started from `backend/`, it resolves to `backend/data/coordination.db`. A process configured for `backend/data/staging-public-datasets.sqlite` uses a different database even if it serves the same API routes. Before testing, inspect each API process's non-secret `DATABASE_URL` source and resolved SQLite file (for example, use `lsof -p <api-pid>` to identify an open database file). Never point a synthetic workflow at a database containing user or operational records. Do not migrate, seed, or write to the preserved public-dataset staging database for this check.
+
+The mobile SOS client sends an authenticated `POST /api/v1/user/incidents` with an `Idempotency-Key`; the API returns `201` for a newly persisted record or `200` for a replay of the same key. An authorized coordinator reads it from `GET /api/v1/incidents`. Open the returned incident ID/reference and confirm it is present in the API response before diagnosing a rendering problem. The dashboard refreshes Overview, Incident Queue, Reports, and Notifications every 12 seconds while the browser tab is visible and no modal is open; refresh pauses while hidden or while a dialog is open. This is polling, not push delivery.
+
 ### 5. Set up and run Flutter
 
 From the repository root:
@@ -324,6 +336,8 @@ For a USB-connected Android device, one loopback option is Android port reversal
 adb reverse tcp:8000 tcp:8000
 flutter run -d <device-id> --dart-define=API_BASE_URL=http://127.0.0.1:8000
 ```
+
+Use the actual backend port on both sides of `adb reverse`; for example, a backend on host port `8001` needs `adb reverse tcp:8001 tcp:8001` and Flutter must be built/run with `API_BASE_URL=http://127.0.0.1:8001`. After reconnecting the device, check `adb devices -l` and `adb reverse --list`. A device shown as `unauthorized` cannot be used for installation, app interaction, or reverse-port verification until its owner unlocks it and accepts the USB debugging prompt.
 
 On a physical phone, `127.0.0.1` means the phone itself. USB `adb reverse` maps the phone's port to the development host. Debug builds also allow private-network HTTP origins, but only use them on a trusted, explicitly scoped network with the backend and CORS configured accordingly. Release builds require HTTPS. Never expose a local API publicly just to bypass device networking.
 
@@ -599,7 +613,7 @@ After deployment, verify `/health/live`, `/health/ready`, database migration rev
 | Flutter cannot reach API | Verify `API_BASE_URL` compile-time define and `/health/live`. On a physical phone, loopback means the phone; use USB `adb reverse` or an intentionally configured private-network debug URL. Do not use HTTP for a release build. |
 | CORS error in browser | Set backend `CORS_ORIGINS` to the exact browser origin including scheme and port; do not add a path. Then restart/redeploy the API. CORS does not fix an incorrect API URL. |
 | Login/registration fails | Check the API response status, account role/active state, password length, login throttle, and whether Flutter/React use the same backend. Do not reset credentials or alter accounts without verifying the database target. |
-| Incident missing in React | Confirm Flutter's successful POST response and returned ID, the same backend origin/database, authorized `/api/v1/incidents` response, `view_incidents` permission, and cleared search/status/priority/category filters. The React dashboard refreshes supported views every 12 seconds while visible; use its retry or navigate back to the page. Check details for intake/report state. |
+| Incident missing in React | Confirm Flutter's successful POST response and returned ID, the same backend origin and resolved database file, an authorized `/api/v1/incidents` response, `view_incidents` permission, and cleared search/status/priority/category filters. Check the API process's open SQLite file rather than inferring the database from its port. Wait up to 12 seconds with the tab visible and any dialog closed, or use Refresh; polling pauses in a hidden tab and while a dialog is open. |
 | Migration says tables already exist or revisions mismatch | Stop. Inspect `DATABASE_URL`, `alembic current/history`, actual schema, and database provenance. Do not delete a DB, stamp blindly, or downgrade data. See [backup/recovery](docs/operations/backup-and-recovery.md). |
 | Vercel cannot find shared brand assets | Confirm Root Directory is `web/react-dashboard` and enable inclusion of source files outside the root so `web/assets/` is available. Use app-root build settings in `web/react-dashboard/vercel.json`. |
 | Vercel production build rejects API URL | Enter the actual HTTPS API origin in `VITE_ECS_API_ORIGIN`; remove placeholders, credentials, path, query, or fragment. Never bypass the guard for deployment. |
