@@ -1,8 +1,10 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import text
 
 from app.api import router
@@ -10,6 +12,8 @@ from app.config import get_settings
 from app.database import Base, engine
 from app import models  # noqa: F401 - registers SQLAlchemy models
 from app.intelligence import run_analysis_recovery_worker
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -29,6 +33,7 @@ async def lifespan(_app: FastAPI):
             worker.cancel()
             with suppress(asyncio.CancelledError):
                 await worker
+        engine.dispose()
 
 
 settings = get_settings()
@@ -55,6 +60,13 @@ def live():
 
 @app.get("/health/ready", tags=["health"])
 def ready():
-    with engine.connect() as connection:
-        connection.execute(text("SELECT 1"))
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError as exc:
+        # Do not log the exception text: driver diagnostics may include the
+        # configured host or connection details. The exception class is enough
+        # for an operator to distinguish the failure family.
+        logger.warning("Database readiness check failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Database unavailable") from None
     return {"status": "ready"}

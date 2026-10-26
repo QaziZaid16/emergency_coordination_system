@@ -213,5 +213,5 @@ def test_disabled_postgres_mode_keeps_ordinary_tests_enabled():
     )
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
-    assert "2 passed" in output
+    assert "3 passed" in output
     assert "skipped" not in output

@@ -2,7 +2,7 @@ from logging.config import fileConfig
 
 from alembic import context
 from alembic.script.base import Script
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import Float, engine_from_config, pool
 
 from app.config import get_settings
 from app.database import Base
@@ -28,18 +28,46 @@ config.set_main_option("sqlalchemy.url", get_settings().database_url)
 target_metadata = Base.metadata
 
 
+def compare_type(
+    context, inspected_column, metadata_column, inspected_type, metadata_type
+):
+    # SQLite reflects the migrations' FLOAT columns as Float while SQLAlchemy's
+    # `Mapped[float]` resolves to Double. SQLite stores both with the same REAL
+    # affinity; keep alembic check useful without hiding PostgreSQL differences.
+    if (
+        context.dialect.name == "sqlite"
+        and isinstance(inspected_type, Float)
+        and isinstance(metadata_type, Float)
+        and inspected_type.precision == metadata_type.precision
+    ):
+        return False
+    return None
+
+
 def run_migrations_offline():
-    context.configure(url=config.get_main_option("sqlalchemy.url"), target_metadata=target_metadata,
-                      literal_binds=True, dialect_opts={"paramstyle": "named"}, compare_type=True)
+    context.configure(
+        url=config.get_main_option("sqlalchemy.url"),
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+        compare_type=compare_type,
+    )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online():
-    connectable = engine_from_config(config.get_section(config.config_ini_section, {}),
-                                     prefix="sqlalchemy.", poolclass=pool.NullPool)
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=compare_type,
+        )
         with context.begin_transaction():
             # PostgreSQL's outer Alembic transaction remains active through
             # run_migrations() with the default transaction_per_migration=False.

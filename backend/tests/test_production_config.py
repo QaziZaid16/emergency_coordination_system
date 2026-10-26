@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.engine import make_url
 
 import app.config as app_config
 from app.config import Settings
@@ -11,7 +12,7 @@ def test_production_accepts_postgres_and_https_origins():
     settings = Settings(
         environment="production",
         jwt_secret="x" * 40,
-        database_url="postgresql+psycopg://user:password@db.internal/coordination",
+        database_url="postgresql+psycopg://user:password@db.internal/coordination?sslmode=require",
         cors_origins="https://dashboard.coordination-service.org",
         public_app_url="https://dashboard.coordination-service.org",
     )
@@ -22,7 +23,7 @@ def test_staging_uses_production_database_and_https_validation():
     settings = Settings(
         environment="staging",
         jwt_secret="x" * 40,
-        database_url="postgresql+psycopg://user:password@db.internal/coordination",
+        database_url="postgresql+psycopg://user:password@db.internal/coordination?sslmode=require",
         cors_origins="https://staging-dashboard.coordination-service.org",
         public_app_url="https://staging-dashboard.coordination-service.org",
         staging_responder_invitation_handoff=True,
@@ -31,11 +32,53 @@ def test_staging_uses_production_database_and_https_validation():
     assert settings.environment == "staging"
 
 
+@pytest.mark.parametrize("scheme", ["postgres", "postgresql"])
+def test_provider_postgres_schemes_normalize_to_psycopg_without_changing_url_data(
+    scheme,
+):
+    settings = Settings(
+        environment="staging",
+        jwt_secret="x" * 40,
+        database_url=(
+            f"{scheme}://service:p%40ss@db.internal/coordination"
+            "?sslmode=require&application_name=iercs"
+        ),
+        cors_origins="https://staging-dashboard.coordination-service.org",
+        public_app_url="https://staging-dashboard.coordination-service.org",
+        _env_file=None,
+    )
+
+    url = make_url(settings.database_url)
+    assert url.drivername == "postgresql+psycopg"
+    assert url.password == "p@ss"
+    assert url.query == {"sslmode": "require", "application_name": "iercs"}
+
+
+@pytest.mark.parametrize("sslmode", [None, "disable", "allow", "prefer"])
+def test_staging_rejects_postgres_urls_without_required_tls(sslmode):
+    query = f"?sslmode={sslmode}" if sslmode else ""
+    sentinel = "synthetic-password-must-not-be-logged"
+    with pytest.raises(ValidationError) as error:
+        Settings(
+            environment="staging",
+            jwt_secret="x" * 40,
+            database_url=(
+                "postgresql+psycopg://user:"
+                f"{sentinel}@db.internal/coordination{query}"
+            ),
+            cors_origins="https://staging-dashboard.coordination-service.org",
+            public_app_url="https://staging-dashboard.coordination-service.org",
+            _env_file=None,
+        )
+    assert "PostgreSQL TLS" in str(error.value)
+    assert sentinel not in str(error.value)
+
+
 def test_staging_invitation_handoff_defaults_disabled():
     settings = Settings(
         environment="staging",
         jwt_secret="x" * 40,
-        database_url="postgresql+psycopg://user:password@db.internal/coordination",
+        database_url="postgresql+psycopg://user:password@db.internal/coordination?sslmode=require",
         cors_origins="https://staging-dashboard.coordination-service.org",
         public_app_url="https://staging-dashboard.coordination-service.org",
         _env_file=None,
@@ -93,7 +136,7 @@ def test_environment_name_is_normalized_case_insensitively():
     settings = Settings(
         environment="STAGING",
         jwt_secret="x" * 40,
-        database_url="postgresql+psycopg://user:password@db.internal/coordination",
+        database_url="postgresql+psycopg://user:password@db.internal/coordination?sslmode=require",
         cors_origins="https://staging-dashboard.coordination-service.org",
         public_app_url="https://staging-dashboard.coordination-service.org",
     )
@@ -113,7 +156,7 @@ def test_staging_rejects_non_production_safe_configuration(overrides):
     values = {
         "environment": "staging",
         "jwt_secret": "x" * 40,
-        "database_url": "postgresql+psycopg://user:password@db.internal/coordination",
+        "database_url": "postgresql+psycopg://user:password@db.internal/coordination?sslmode=require",
         "cors_origins": "https://staging-dashboard.coordination-service.org",
         "public_app_url": "https://staging-dashboard.coordination-service.org",
     }
@@ -149,7 +192,7 @@ def test_staging_rejects_unknown_ai_provider_selector():
         Settings(
             environment="staging",
             jwt_secret="x" * 40,
-            database_url="postgresql+psycopg://user:password@db.internal/coordination",
+            database_url="postgresql+psycopg://user:password@db.internal/coordination?sslmode=require",
             cors_origins="https://staging-dashboard.coordination-service.org",
             public_app_url="https://staging-dashboard.coordination-service.org",
             ai_provider="openroter",
@@ -161,7 +204,7 @@ def test_staging_handoff_cannot_be_enabled_in_production_or_with_smtp():
     values = {
         "environment": "production",
         "jwt_secret": "x" * 40,
-        "database_url": "postgresql+psycopg://user:password@db.internal/coordination",
+        "database_url": "postgresql+psycopg://user:password@db.internal/coordination?sslmode=require",
         "cors_origins": "https://dashboard.coordination-service.org",
         "public_app_url": "https://dashboard.coordination-service.org",
         "staging_responder_invitation_handoff": True,
@@ -192,7 +235,7 @@ def test_production_rejects_unsafe_or_ephemeral_configuration(overrides):
     values = {
         "environment": "production",
         "jwt_secret": "x" * 40,
-        "database_url": "postgresql+psycopg://user:password@db.internal/coordination",
+        "database_url": "postgresql+psycopg://user:password@db.internal/coordination?sslmode=require",
         "cors_origins": "https://dashboard.coordination-service.org",
         "public_app_url": "https://dashboard.coordination-service.org",
     }

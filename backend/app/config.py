@@ -2,14 +2,26 @@ import re
 from functools import lru_cache
 from urllib.parse import urlsplit
 
-from pydantic import Field
-from pydantic import model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
 
+def normalize_database_url(value: str) -> str:
+    """Use the installed psycopg 3 driver for provider PostgreSQL URLs."""
+    value = value.strip()
+    scheme = value.partition("://")[0].casefold()
+    if scheme in {"postgres", "postgresql"}:
+        return "postgresql+psycopg://" + value.partition("://")[2]
+    return value
+
+
 class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/coordination.db"
+    database_pool_size: int = Field(default=5, ge=1, le=50)
+    database_max_overflow: int = Field(default=5, ge=0, le=100)
+    database_pool_timeout_seconds: int = Field(default=30, ge=1, le=300)
+    database_pool_recycle_seconds: int = Field(default=1800, ge=60, le=86400)
     jwt_secret: str = ""
     access_token_minutes: int = 30
     remember_me_days: int = Field(default=30, ge=1, le=365)
@@ -39,6 +51,11 @@ class Settings(BaseSettings):
     recommendation_workload_weight: int = Field(default=20, ge=0, le=100)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_driver(cls, value: str) -> str:
+        return normalize_database_url(value)
 
     @model_validator(mode="after")
     def validate_production(self):
@@ -93,6 +110,15 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "Production and staging require a complete PostgreSQL DATABASE_URL"
+            )
+        sslmode = str(database_url.query.get("sslmode", "")).casefold()
+        if sslmode not in {
+            "require",
+            "verify-ca",
+            "verify-full",
+        }:
+            raise ValueError(
+                "Production and staging DATABASE_URL must require PostgreSQL TLS"
             )
         origins = self.cors_origin_list
         if not origins or any(not origin.startswith("https://") for origin in origins):

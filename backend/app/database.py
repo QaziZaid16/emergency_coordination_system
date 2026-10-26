@@ -5,21 +5,43 @@ from sqlalchemy import create_engine, event, make_url
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from app.config import get_settings
+from app.config import get_settings, normalize_database_url
 
 
 class Base(DeclarativeBase):
     pass
 
 
-def build_engine(url: str):
+def build_engine(
+    url: str,
+    *,
+    pool_size: int = 5,
+    max_overflow: int = 5,
+    pool_timeout: int = 30,
+    pool_recycle: int = 1800,
+):
+    url = normalize_database_url(url)
     connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
     if url.startswith("sqlite") and url not in ("sqlite://", "sqlite:///:memory:"):
         database_path = make_url(url).database
         if database_path and database_path != ":memory:":
             Path(database_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
     pool = StaticPool if url in ("sqlite://", "sqlite:///:memory:") else None
-    engine = create_engine(url, connect_args=connect_args, pool_pre_ping=True, **({"poolclass": pool} if pool else {}))
+    pool_options = {}
+    if make_url(url).drivername.startswith("postgresql"):
+        pool_options = {
+            "pool_size": pool_size,
+            "max_overflow": max_overflow,
+            "pool_timeout": pool_timeout,
+            "pool_recycle": pool_recycle,
+        }
+    engine = create_engine(
+        url,
+        connect_args=connect_args,
+        pool_pre_ping=True,
+        **pool_options,
+        **({"poolclass": pool} if pool else {}),
+    )
     if url.startswith("sqlite"):
         @event.listens_for(engine, "connect")
         def _enable_foreign_keys(dbapi_connection, _connection_record):
@@ -29,7 +51,14 @@ def build_engine(url: str):
     return engine
 
 
-engine = build_engine(get_settings().database_url)
+_settings = get_settings()
+engine = build_engine(
+    _settings.database_url,
+    pool_size=_settings.database_pool_size,
+    max_overflow=_settings.database_max_overflow,
+    pool_timeout=_settings.database_pool_timeout_seconds,
+    pool_recycle=_settings.database_pool_recycle_seconds,
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 

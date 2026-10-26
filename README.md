@@ -79,7 +79,7 @@ flowchart LR
   M[Flutter Android client] -->|HTTPS or configured local API origin| API[FastAPI API]
   W[React + Vite dashboard] -->|HTTPS or configured local API origin| API
   API --> ORM[SQLAlchemy sessions]
-  ORM --> DB[(SQLite local and tests / PostgreSQL deployment target)]
+  ORM --> DB[(PostgreSQL persistent runtime / SQLite isolated development and tests)]
   API --> JOB[Background task and recovery poller]
   JOB --> DB
   JOB -. optional server-side provider call .-> AI[OpenRouter Gemma adapter]
@@ -201,8 +201,8 @@ sequenceDiagram
 | React 18, TypeScript, Vite 6 | Browser coordinator dashboard and activation screen. Exact package versions are in `web/react-dashboard/package-lock.json`. |
 | Python, FastAPI, Pydantic Settings | API routing, request validation, settings and OpenAPI docs. Dependency ranges are in `backend/requirements*.txt`. |
 | SQLAlchemy 2, Alembic | ORM/session handling and versioned schema migrations. |
-| SQLite | Local development and isolated automated test database support. |
-| PostgreSQL + psycopg | Required database URL dialect for staging/production settings. |
+| PostgreSQL + psycopg 3 | Persistent application database for staging/production and the production-like Docker Compose setup. |
+| SQLite | Explicit local development and isolated automated test database adapter; it is rejected for staging/production. |
 | PyJWT, pwdlib Argon2 | Signed access tokens and password hashing. |
 | HTTPX | Optional server-side provider adapters and API tests. |
 | pytest, Vitest, Testing Library, Flutter Test | Backend, React, and mobile tests. |
@@ -220,7 +220,7 @@ CI currently uses Python 3.13, Node.js 24, Flutter 3.47.7, and Java 17. Those ar
 - Flutter SDK/Dart satisfying `pubspec.yaml` (CI uses Flutter 3.47.7).
 - Android SDK and Platform Tools only for Android emulator/device work.
 
-SQLite is sufficient for a new isolated local database. Docker Compose and PostgreSQL are optional for local PostgreSQL work. A Vercel/Render/Supabase account is not required for local tests. Provider API keys are not needed for provider-off operation or mocked tests.
+Docker and Docker Compose are needed for the PostgreSQL-backed local stack. A Vercel/Render/Supabase account is not required for local tests. SQLite remains available for isolated development and tests; it is not a staging/production fallback. Provider API keys are not needed for provider-off operation or mocked tests.
 
 ## Local development setup
 
@@ -239,7 +239,7 @@ python -m pip install -r requirements-dev.txt
 cp .env.example .env                    # Windows PowerShell: Copy-Item .env.example .env
 ```
 
-Edit the new `backend/.env` locally. Set `ENVIRONMENT=development` explicitly (the checked-in example may not include it), set a new private `JWT_SECRET` with at least 32 characters, and choose a new SQLite file. For example:
+For lightweight isolated development, edit the new `backend/.env` locally. Set a fresh private `JWT_SECRET` with at least 32 characters and keep the SQLite URL on a new database file. The checked-in example sets `ENVIRONMENT=development` and uses:
 
 ```dotenv
 ENVIRONMENT=development
@@ -251,6 +251,18 @@ AI_PROVIDER=none
 ```
 
 Do not put an actual credential in the README, a Dart define, a Vite variable, or Git. Pydantic Settings loads the process environment and `.env` relative to the backend process working directory; process environment values take precedence.
+
+#### PostgreSQL-backed local stack
+
+For production-like local persistence, Docker Compose runs PostgreSQL 17 with a persistent named `coordination-data` volume and the FastAPI container. In the new `backend/.env`, replace the `POSTGRES_PASSWORD` example with a generated local secret and set a private `JWT_SECRET`. Do not overwrite an existing `.env` or Compose volume.
+
+From the repository root:
+
+```sh
+docker compose -f backend/compose.yaml up --build
+```
+
+The Compose API uses `postgresql+psycopg`, waits for PostgreSQL health, applies Alembic migrations through `backend/start.sh`, then serves FastAPI on `127.0.0.1:8000`. Check `/health/live` and `/health/ready`. Compose maps only the API and database remains on the private Compose network. Do not run `docker compose down -v` unless you have explicitly backed up and intend to delete the persistent local PostgreSQL volume. To stop services while keeping database files, use `docker compose -f backend/compose.yaml down`.
 
 ### 2. Migrate and provision a local administrator
 
@@ -354,7 +366,8 @@ Backend settings are defined by `backend/app/config.py`; local sample values are
 | Variable | Used by | Purpose / requiredness |
 |---|---|---|
 | `ENVIRONMENT` | Backend | Explicitly required by `get_settings()`. Accepted: `development`, `test`, `staging`, `production`. Hosted production settings are stricter. |
-| `DATABASE_URL` | Backend/Alembic | SQLAlchemy database target. Local default is SQLite; staging/production validation requires a complete `postgresql+psycopg://` URL. Treat credential-bearing URLs as secrets. |
+| `DATABASE_URL` | Backend/Alembic | SQLAlchemy target. Local development defaults to SQLite; staging/production require PostgreSQL and `sslmode=require`, `verify-ca`, or `verify-full`. `postgres://` and `postgresql://` provider schemes normalize to psycopg 3. Treat the credential-bearing value as a secret. |
+| `DATABASE_POOL_SIZE`, `DATABASE_MAX_OVERFLOW`, `DATABASE_POOL_TIMEOUT_SECONDS`, `DATABASE_POOL_RECYCLE_SECONDS` | PostgreSQL engine | Bounded QueuePool controls. Defaults are 5, 5, 30 seconds, and 1800 seconds. |
 | `JWT_SECRET` | Backend | Required outside test mode; minimum 32 characters. Secret used to sign access tokens and hash login-attempt identifiers. |
 | `ACCESS_TOKEN_MINUTES` | Backend | Access token lifetime; default 30 minutes. |
 | `REMEMBER_ME_DAYS` | Backend | Remembered-session maximum lifetime; default 30 days, range 1–365. |
@@ -461,7 +474,17 @@ Health endpoints are outside the API prefix: `GET /health/live` checks process l
 
 ## Data model and migrations
 
-Local development/tests use SQLite. `ENVIRONMENT=staging` and `production` require a PostgreSQL URL with the `postgresql+psycopg` driver. SQLAlchemy sessions are created per API request. Alembic is the schema-change mechanism; the app only calls `Base.metadata.create_all()` in development/test lifespan.
+PostgreSQL is the persistent application database for staging/production and the Docker Compose stack. `ENVIRONMENT=staging` and `production` reject SQLite and require PostgreSQL TLS. Provider URLs using `postgres://` or `postgresql://` are normalized to the installed `postgresql+psycopg` driver; the URL must include `sslmode=require`, `verify-ca`, or `verify-full`. For example, a provider URL has this shape (the angle-bracket values are documentation placeholders, not usable credentials):
+
+```text
+postgresql://<user>:<encoded-password>@<provider-host>:5432/<database>?sslmode=require
+```
+
+SQLite is retained only for explicitly local development and isolated tests. SQLAlchemy sessions are created per API request; PostgreSQL uses a bounded, pre-ping connection pool that is disposed on API shutdown. Pool settings are controlled by `DATABASE_POOL_SIZE`, `DATABASE_MAX_OVERFLOW`, `DATABASE_POOL_TIMEOUT_SECONDS`, and `DATABASE_POOL_RECYCLE_SECONDS`. Alembic is the schema-change mechanism; `Base.metadata.create_all()` runs only in development/test. `/health/ready` executes a database query and returns `503 Database unavailable` on a database connection failure without returning the connection URL or driver exception text.
+
+### SQLite data migration status and safe procedure
+
+There is no automatic SQLite-to-PostgreSQL copy command in this repository. Before copying any existing operational data, first select a dedicated PostgreSQL target and prove its identity, back up the source, and compare the source's recorded Alembic revision and actual columns with the current models. Stop if the revision and live schema disagree; never stamp over drift or run the application migration chain as a guessed repair. Migrate into a separately created PostgreSQL database after applying Alembic, preserve primary keys and foreign-key ordering, detect unique-key conflicts, and verify table counts plus foreign-key integrity before switching the API's `DATABASE_URL`. Keep the original SQLite file unchanged until the owner accepts the verified copy. Public historical tables should be copied only after explicitly confirming that their purpose belongs in the destination; they are not imported automatically. Record source/target revisions, pre/post row counts, and all unresolved conflicts before cutover.
 
 ### Main tables
 
