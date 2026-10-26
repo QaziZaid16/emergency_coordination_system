@@ -4,27 +4,27 @@
 
 **Not deployed.** No Vercel, Render, or Supabase project is connected to this repository, no cloud API or dashboard URL has been issued, no remote database has been migrated, and no cloud login or persistence test has run. Do not treat the example hostnames below as live URLs.
 
-The current repository already contains the static dashboard build (`vercel.json`), FastAPI Docker image (`backend/Dockerfile`), PostgreSQL migrations, health endpoints, and local/CI checks. This document and `render.yaml` prepare a no-purchase demonstration deployment. Provider account authorization and project creation remain owner actions.
+The current repository contains the React website build and route configuration (`vercel.json`), FastAPI Docker image (`backend/Dockerfile`), PostgreSQL migrations, health endpoints, and local/CI checks. This document and `render.yaml` prepare a no-purchase demonstration deployment. Provider account authorization and project creation remain owner actions.
 
 ## Target layout
 
 | Component | Target | Reason and boundary |
 |---|---|---|
-| Browser dashboard | Vercel Hobby static deployment, `main` branch | The HTML/CSS/JavaScript site is static and already has a Vercel build configuration. Git integration provides preview and production deployments. Hobby is for personal, non-commercial use. |
-| API | Render Free Docker web service | Uses the existing FastAPI image and `render.yaml`; HTTPS and the `onrender.com` subdomain are provided by Render. It sleeps when idle. |
-| Database | Supabase Free PostgreSQL | Persistent PostgreSQL rather than a container-local SQLite file. Use Supabase's IPv4 session pooler from Render. Free projects may pause after inactivity and have no managed backups. |
+| Browser dashboard | Vercel project rooted at the repository, `main` branch | Vercel builds the React SPA from `web/react-dashboard/` and serves its `dist/` output. Hobby is free for personal, non-commercial use and supports Git deployments. |
+| API | Render Free Docker web service | Uses the existing FastAPI image and `render.yaml`; HTTPS and the `onrender.com` subdomain are provided by Render. Free services sleep after 15 minutes without traffic and can take about a minute to wake. |
+| Database | Supabase Free PostgreSQL | Persistent PostgreSQL rather than a container-local SQLite file. Use Supabase's IPv4 shared Session pooler from Render. Free projects may pause after inactivity and do not include managed daily backups. |
 | AI | Disabled (`AI_PROVIDER=none`) | No provider or key is selected. The deterministic backend baseline remains in use. |
 | Notifications | Existing persistent in-app records only | FCM, device tokens, email notifications, and delivery tracking are not configured. SMTP invitations need a separately configured mail provider. |
 
-This is a prototype hosting arrangement, not production service assurance. Keep real emergency and sensitive location data out of it.
+**Free-tier suitability, checked 2026-10-26:** Render says Free web services are for testing/hobby use, not production; they receive 750 instance-hours per workspace per month, sleep after 15 idle minutes, have an ephemeral filesystem, cannot attach persistent disks, and free Render Postgres expires 30 days after creation. The selected Supabase Free database persists independently of Render, but is limited to 500 MB and 5 GB egress, may pause after seven days of low activity, and has no automatic backups; a paused project can be restored within one year. Vercel Hobby is restricted to personal, non-commercial use and currently includes 100 GB monthly Fast Data Transfer; Hobby usage-dependent features pause at their free limits. Treat this stack as a small synthetic-data demo only, not a reliable emergency-response service. Never store real emergency or sensitive location data in it. Provider limits can change.
 
 ## Deployment checklist
 
-- [ ] Owner creates/authorizes free Vercel, Render, and Supabase accounts; keep every service on its $0 plan and do not add billing or paid add-ons. Whether an account signup flow asks for a card was not verified.
-- [ ] A Supabase Free project is created; the Session pooler connection string is stored only in Render's service settings.
-- [ ] The Vercel project is connected to this GitHub repository, with root directory `/`, production branch `main`, build command `node scripts/build_web_config.mjs --required`, and output directory `web`.
-- [ ] Vercel project variable `ECS_API_BASE_URL` contains the actual Render HTTPS origin. Do not use a placeholder.
-- [ ] Render creates the service from [`render.yaml`](../../render.yaml), with the actual Vercel origin in `CORS_ORIGINS` and `PUBLIC_APP_URL`.
+- [ ] Owner authorizes and connects personal Vercel Hobby, Render Free, and Supabase Free accounts. Keep all resources on $0 plans; do not add a card, billing, or paid add-on without authorization. Provider signup/card requirements have not been verified.
+- [ ] Create/import the Vercel project and obtain its actual project domain from Vercel. Configure Root Directory `web/react-dashboard`, branch `main`, install command `npm ci`, build command `npm run build`, and output directory `dist`. Enable **Include source files outside of the Root Directory** so Vite can copy the shared logo from `web/assets/`. Do not weaken the build's API-origin validation.
+- [ ] Create the Supabase Free PostgreSQL project and copy its actual shared Session pooler URL. Keep it only in Render's protected `DATABASE_URL` setting.
+- [ ] Create the Render service from [`render.yaml`](../../render.yaml) after the real Vercel domain and Supabase URL are known. Supply that Vercel origin as both `CORS_ORIGINS` and `PUBLIC_APP_URL`; allow the Blueprint to generate `JWT_SECRET`.
+- [ ] After Render issues its real HTTPS URL, set Vercel `VITE_ECS_API_ORIGIN` to that origin and run a real HTTPS production build/deployment. The build must remain blocked until this value exists; never substitute a guessed or temporary origin.
 - [ ] The Render API passes `/health/live` and `/health/ready`; database connectivity and migrations are verified.
 - [ ] Vercel Deployment Checks are configured to wait for the GitHub Actions `Quality checks` workflow before production promotion.
 - [ ] A protected, owner-controlled Android signing key and repository API URL variable are configured before the signed APK job can run.
@@ -32,42 +32,47 @@ This is a prototype hosting arrangement, not production service assurance. Keep 
 
 ## Provider setup sequence
 
-### 1. Create the Supabase database
+### 1. Obtain the actual Vercel project origin
+
+1. Create/import the repository as a Vercel project using the settings above. Read the actual project domain shown in Vercel; do not guess a slug or use a deployment-specific preview URL for `PUBLIC_APP_URL`. The selected root contains `web/react-dashboard/vercel.json`, which defines the app's relative install/build/output paths and rewrites.
+2. The first production build cannot pass until the backend exists because `VITE_ECS_API_ORIGIN` requires a real HTTPS API origin. Leave it blocked rather than setting a placeholder; complete the backend setup below, then return to Vercel to set the real API origin and deploy.
+
+### 2. Create the Supabase database
 
 1. Create a Free Plan project in the owner's Supabase organization. Keep the database password in a password manager.
 2. Open **Connect** in the project and select **Session pooler**. Supabase identifies this shared pooler as IPv4 accessible, including on Free. Render's free service is not an IPv6-only network assumption.
 3. Store the returned hostname, port, database, username, and password in the private Render `DATABASE_URL` setting, using SQLAlchemy's `postgresql+psycopg://` driver URL and `?sslmode=require`. Percent-encode reserved characters in the password. Do not commit or paste this URL into an issue or chat.
 4. The Render startup command applies `alembic upgrade head` before starting Uvicorn. It retries a failing database connection a bounded number of times, then fails closed. It never runs the demo seed.
 
-Supabase currently lists two active Free projects, 500 MB database size per project, 5 GB egress, and no automatic backups. Free projects may be paused after about a week of low activity; a paused project can be restored for up to one year. Export backups regularly and keep them in an encrypted destination outside this repository. A manual PostgreSQL dump/restore runbook is in [backup and recovery](backup-and-recovery.md); no cloud backup or restore has been tested.
+Supabase currently lists two active Free projects, 500 MB database size per project, 5 GB egress, and no automatic backups. Free projects may be paused after seven days of low activity; a paused project can be restored for up to one year. Export backups regularly and keep them in an encrypted destination outside this repository. A manual PostgreSQL dump/restore runbook is in [backup and recovery](backup-and-recovery.md); no cloud backup or restore has been tested.
 
 Official references: [Supabase plans and quotas](https://supabase.com/pricing), [project pausing](https://supabase.com/docs/guides/platform/free-project-pausing), [PostgreSQL connection modes](https://supabase.com/docs/guides/database/connecting-to-postgres), and [backups](https://supabase.com/docs/guides/platform/backups).
 
-### 2. Create the Render API service
+### 3. Create the Render API service
 
 1. Connect Render to the GitHub account that can access this repository.
 2. Choose **New → Blueprint** for the repository on `main`. Review `render.yaml`; it creates one Free Docker web service and no Render database or other paid resources.
-3. For `DATABASE_URL`, enter the protected Supabase Session pooler URL. Set `CORS_ORIGINS` and `PUBLIC_APP_URL` to the eventual HTTPS Vercel site origin (for example, the actual `https://<project>.vercel.app` shown by Vercel). If the Vercel URL is not known yet, use a valid temporary HTTPS origin, complete the initial deployment, and replace it before testing dashboard sign-in.
+3. For `DATABASE_URL`, enter the protected Supabase Session pooler URL. Set `CORS_ORIGINS` and `PUBLIC_APP_URL` to the actual HTTPS Vercel project origin obtained in step 1. Do not use a guessed, placeholder, unrelated, or temporary origin.
 4. Render generates `JWT_SECRET`. Keep the `ENVIRONMENT=production` and `AI_PROVIDER=none` values declared in the Blueprint.
 5. Once created, record the actual `https://<service>.onrender.com` URL from Render; do not guess the slug. The service uses `/health/ready` for its health check and auto-deploys from `main` only after connected GitHub checks pass.
 
 Production migrations run at container start because Render Free does not provide pre-deploy commands. Keep schema changes backward-compatible with the currently running application and use expand/contract migrations. A failed migration prevents the API from starting; the app does not run `create_all` or seed data in production.
 
-### 3. Create the Vercel dashboard
+### 4. Configure and deploy the Vercel dashboard
 
-1. Import this repository into the owner's personal Vercel Hobby account and select `/` as the project root. Keep the checked-in `vercel.json` build and output settings.
-2. Set `ECS_API_BASE_URL` to the actual Render HTTPS origin. It is a public endpoint, not a secret.
-3. Set `main` as the production branch and deploy. Vercel assigns the free `vercel.app` site URL. Add that exact origin to Render `CORS_ORIGINS` and `PUBLIC_APP_URL`, then redeploy the API.
-4. Reopen the dashboard and verify login and API-backed data. The direct path is `/admin/`; responder activation is `/activate`.
+1. Return to the Vercel project created in step 1. The checked-in `web/react-dashboard/vercel.json` configures React install, build, output, and SPA rewrites.
+2. Set `VITE_ECS_API_ORIGIN` to the actual Render HTTPS API origin. It is public browser configuration, not a secret. The build rejects missing, placeholder, or non-HTTPS values.
+3. Use a Vercel preview deployment for staging validation before promoting the React build to the production alias. Record the actual website origin. Add that exact origin to Render `CORS_ORIGINS` and `PUBLIC_APP_URL`, then redeploy the API.
+4. Verify `/`, `/admin`, `/activate`, and `/activate.html` including a synthetic invitation before sharing the dashboard. Backend invitation URLs already append `/activate.html#token=...`.
 5. In Vercel project settings, configure **Deployment Checks** to block production promotion until the repository's `Quality checks` workflow passes. Vercel can build a deployment before checks finish; the check prevents it becoming the production alias until selected checks pass. Preview deployments remain available for review.
 
-Vercel Hobby is free for personal, non-commercial use, includes GitHub integration and automatic preview/production deployments, and pauses usage-dependent features when quotas are exceeded. The owner must satisfy Vercel's Hobby account/commit-author rules. A custom domain is not required.
+Vercel Hobby is free for personal, non-commercial use, includes Git integration and automatic preview/production deployments, and pauses usage-dependent features when quotas are exceeded. The owner must satisfy Vercel's Hobby account and commit-author rules. A custom domain is not required.
 
-Official references: [Vercel Hobby plan](https://vercel.com/docs/plans/hobby), [Git deployments](https://vercel.com/docs/git), [Deployment Checks](https://vercel.com/docs/deployment-checks).
+Official references: [Vercel Hobby plan](https://vercel.com/docs/plans/hobby), [Git deployments](https://vercel.com/docs/git), [Deployment Checks](https://vercel.com/docs/deployment-checks), [Render Free service limits](https://render.com/docs/free), [Supabase Free project pausing](https://supabase.com/docs/guides/platform/free-project-pausing), and [Supabase backups](https://supabase.com/docs/guides/platform/backups).
 
 ### 4. Configure GitHub Actions and Android signing
 
-`main` is the production branch. `.github/workflows/quality.yml` runs backend tests, Dart format/analyze and Flutter tests, and validates the static web configuration build on PRs and pushes. Render is configured to deploy after checks pass; Vercel production promotion requires the Deployment Checks setting above.
+`main` is the production branch. `.github/workflows/quality.yml` runs backend tests, Dart format/analyze and Flutter tests, and validates the React deployment routes, tests, and build on PRs and pushes. Render is configured to deploy after checks pass; Vercel production promotion requires the Deployment Checks setting above.
 
 The same workflow builds an Android APK after those checks on `main` when the repository variable `API_BASE_URL` is present. APKs are uploaded as a 30-day Actions artifact. A `v*` tag creates a GitHub Release with the APK and build metadata. Workflow manual dispatch is available from `main`.
 
@@ -106,7 +111,7 @@ The backend can send responder activation links through SMTP, but no provider is
 | `DATABASE_URL` | Render environment | Yes; includes the database password |
 | `JWT_SECRET` | Render environment, generated by Blueprint | Yes |
 | `CORS_ORIGINS`, `PUBLIC_APP_URL` | Render environment | No, but must match the actual Vercel origin |
-| `ECS_API_BASE_URL` | Vercel project build environment | No; public API URL |
+| `VITE_ECS_API_ORIGIN` | Vercel project build environment | No; public API URL |
 | `API_BASE_URL` | GitHub Actions repository variable | No; same public API URL for release APKs |
 | `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | GitHub Actions repository secrets | Yes |
 | `AI_PROVIDER` | Render environment | `none`; optional AI is not configured |
@@ -116,7 +121,7 @@ The backend can send responder activation links through SMTP, but no provider is
 | `AI_TIMEOUT_SECONDS`, `AI_MAX_ATTEMPTS`, `AI_RATE_LIMIT_PER_MINUTE`, `AI_SHARE_INCIDENT_LOCATION` | Render environment | Bounded request settings; location sharing defaults off |
 | `SMTP_*` | Render environment | Not configured; outbound SMTP restrictions apply |
 
-Never place database/JWT/SMTP/signing secrets in `ECS_API_BASE_URL`, `API_BASE_URL`, a Flutter `--dart-define`, web assets, workflow YAML, or Git.
+Never place database/JWT/SMTP/signing secrets in `VITE_ECS_API_ORIGIN`, `API_BASE_URL`, a Flutter `--dart-define`, browser bundles, workflow YAML, or Git.
 
 ## Verification and persistence test
 

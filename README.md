@@ -1,648 +1,654 @@
-
 # Emergency Coordination System
 
-A Flutter-based Android client, a static browser coordinator dashboard, and a FastAPI service for an **academic emergency-coordination demonstration**.
+A Flutter mobile client, React coordinator dashboard, and FastAPI service for an **academic emergency-coordination demonstration**.
 
-> **Demonstration software only. Do not use this system to report or coordinate a real emergency.** It does not contact emergency services or dispatch responders. Priority and responder recommendations are prototype decision support, not validated triage or dispatch policy.
+> **Demo only. This software is not an emergency service. Do not use it to report, assess, or coordinate a real emergency.** It does not contact emergency agencies, place emergency calls, or dispatch responders. Its priority, assignment, and analysis features are prototypes and are not validated for real-world response.
 
-## Current status
-
-The repository contains client and API implementations, migration history, tests, a local PostgreSQL Compose definition, and deployment templates. It has **no verified public deployment, connected hosting project, or approved operational database**. The checked-in Android APK is an older debug-signed artifact, not a release build.
-
-Provider-off tests and local client checks pass in this workspace; that does not establish hosted behavior. The integration audit records one earlier successful Gemma adapter-level completion and earlier disposable PostgreSQL 17.11 migration/ownership results. Neither establishes live incident-to-analysis deployment or production readiness. See [the integration audit](docs/GEMMA_INTEGRATION_AUDIT.md).
-
-The proposed local demo is limited to synthetic data and up to three phones on trusted Wi-Fi. It is **not ready to run**: database-volume ownership, backup/restore evidence, exact LAN/firewall scope, and separate runtime authorization remain open. Free cloud staging is now user-authorized but no provider project, persistent database, public URL, or deployment has been configured or verified. Production remains **NO-GO**.
+This repository contains source code and deployment templates. No live hosted deployment, operational database, or production service is verified. Review [deployment status](docs/operations/hosting.md) before attempting to host it.
 
 ## Contents
 
-- [Capabilities and verification status](#capabilities-and-verification-status)
+- [Overview](#overview)
+- [Implemented capabilities and limits](#implemented-capabilities-and-limits)
 - [Architecture](#architecture)
-- [Repository map](#repository-map)
+- [Repository structure](#repository-structure)
+- [Technology stack](#technology-stack)
 - [Prerequisites](#prerequisites)
 - [Local development setup](#local-development-setup)
 - [Configuration reference](#configuration-reference)
-- [Running the components](#running-the-components)
-- [HTTP API reference](#http-api-reference)
+- [API reference](#api-reference)
 - [Data model and migrations](#data-model-and-migrations)
-- [End-to-end workflows](#end-to-end-workflows)
-- [Testing and validation](#testing-and-validation)
-- [Security, privacy, and safety](#security-privacy-and-safety)
+- [Authentication and security](#authentication-and-security)
+- [Testing and quality checks](#testing-and-quality-checks)
+- [Deployment](#deployment)
 - [Troubleshooting](#troubleshooting)
-- [Contribution workflow](#contribution-workflow)
-- [Deployment and operations](#deployment-and-operations)
-- [Limitations and deferred work](#limitations-and-deferred-work)
+- [Development workflow](#development-workflow)
+- [Roadmap and known limitations](#roadmap-and-known-limitations)
+- [License and acknowledgements](#license-and-acknowledgements)
 - [Further documentation](#further-documentation)
 
-## Capabilities and verification status
+## Overview
 
-| Capability | Implementation | Evidence and limits |
-|---|---|---|
-| User, responder, Super Admin, and scoped Co-Admin portals | Flutter client and static JavaScript coordinator dashboard; FastAPI owns identity and authorization | Local workflow, API, and widget tests. No hosted login verified. |
-| Incident intake and persistence | Validated API request, idempotency key, transaction-bound incident/history/in-app notification records | Local SQLite tests cover the flow. No external emergency dispatch exists. |
-| Deterministic priority and dispatch eligibility | Deterministic rules; backend revalidates responder, assignment, and resource constraints | Prototype rules only. Automatic assignment defaults off and is controlled by Super Admin policy. |
-| Incident analysis | Durable analysis row, optional OpenRouter adapter, schema/evidence validation, rules-based fallback, recovery polling | Provider-isolated tests cover success, malformed output, failure, fallback, and ownership fencing. Live end-to-end operation is unverified. |
-| Responder recommendation and assignment | Deterministic eligibility/ranking; coordinator selects; backend checks again within assignment transaction | Local tests cover implemented behavior. Scores are not validated dispatch policy. |
-| Follow-up, responder-note drafts, resolution report | Rule-based optional questions; optional AI rewrite draft with review; deterministic evidence-template report on resolution | Application paths are tested locally. The report does not establish cause or replace an investigation. |
-| Notifications | Recipient-scoped persistent in-app records | Local tests cover persistence/read state. Push delivery is absent; SMTP is used only for responder invitations when configured. |
-| Admin Copilot | Fixed read-only intent handlers over operational records | Rules-based; no LLM, arbitrary SQL, or mutation authority. |
-| PostgreSQL queue/migration safety | Claim-token result persistence and transaction-scoped PostgreSQL Alembic advisory lock | Earlier disposable PostgreSQL test results are recorded in the audit. Hosted PostgreSQL, replicas, and rollout behavior remain unverified. |
-| Web and Android builds | Static dashboard configuration, Flutter Android app, Flutter web target | Local Flutter web build and client tests passed. No deployed site or API URL exists. |
+The system is a teaching and demonstration project for coordinating synthetic incident reports among three clients/services:
 
-Status labels in this table describe repository implementation and local evidence only. They do not imply a hosted test or operational readiness.
-
-## Technology stack
-
-| Area | Technologies verified from project configuration |
+| Component / role | Responsibility in this implementation |
 |---|---|
-| Mobile/client UI | Flutter and Dart; Material widgets; HTML/CSS/vanilla JavaScript for the separate browser dashboard |
-| API | Python, FastAPI, Uvicorn, Pydantic and Pydantic Settings |
-| Persistence | SQLAlchemy 2.x, Alembic; SQLite for local development/tests and PostgreSQL via psycopg for production configuration |
-| Authentication | PyJWT HS256 access tokens, Argon2 password hashing through pwdlib, hashed rotating refresh tokens |
-| Optional AI | HTTPX OpenRouter adapter for google/gemma-4-31b-it; optional OpenAI-compatible adapter; provider-off rules baseline |
-| Mobile packages | http, geolocator, flutter_secure_storage, flutter_svg |
-| Tests | pytest/httpx, Flutter test/analyze, Node's built-in test runner |
-| Deployment definitions | Dockerfile/Compose, Render blueprint, Vercel static-site config, GitHub Actions |
+| Flutter User | Creates an account, submits an SOS/incident request with a manual or permitted location, provides follow-up answers, and views the user's incidents and notifications. |
+| Flutter Responder | Uses an invited and activated account to view assigned tasks, update permitted task statuses, report progress, and submit a location for recommendation calculations. |
+| Flutter Admin / React administrator | Reviews incidents and reports; manages responder invitations, assignments, resources, accounts, notifications, analytics, audit history, and selected policy controls according to permissions. |
+| FastAPI | Owns identity, authorization, request validation, workflow decisions, persistence, and the versioned HTTP API. |
+| SQL database | Stores accounts, incidents, assignments, workflow records, notifications, analysis, audit events, and separate historical dataset records. |
 
-Backend dependency ranges are declared in backend/requirements.txt and backend/requirements-dev.txt. Flutter dependency constraints are in pubspec.yaml and resolved versions in pubspec.lock. The CI workflow currently selects Python 3.13, Flutter 3.47.7, Java 17, and Node 24; these are CI settings, not proof that every developer machine has them installed.
+The React website is in `web/react-dashboard/`. Flutter source is at the repository root (`lib/`, `android/`, and `pubspec.yaml`). The Flutter Web build target is separate and writes to `build/web/`; it is not the React website. The two clients communicate with the same configured API origin, but local, emulator, physical-device, and hosted origins differ.
+
+The React dashboard includes Overview, Incident Queue, Responders, User Accounts, Resources, Reports & Analytics, Historical/Public Data, Audit History, Co-Admins, Notifications, and Automatic Assignment Policy views, subject to role/permission visibility. The `/activate` and `/activate.html` routes serve responder invitation activation; `/` and `/admin` show the dashboard. The React app does not provide public User registration.
+
+### Core workflow
+
+1. A User registers or signs in using the mobile client. Public registration creates only a normal User account.
+2. The User submits a validated incident request with an idempotency key. The API persists the incident and related initial records before returning its ID/reference.
+3. An administrator with incident access retrieves the permitted incident list, reviews details, and may assign, reassign, cancel, or resolve within the backend's authorization and workflow rules.
+4. An assigned Responder can advance the assignment through allowed statuses and add progress updates.
+5. In-app notifications and audit records are stored in the database. They are not mobile push notifications.
+
+The API's exact data scope depends on the authenticated role. These routes and client flows are implemented; hosted delivery, real emergency response, and live provider integrations are not implied.
+
+## Implemented capabilities and limits
+
+| Area | Implemented behavior | Boundary / verification note |
+|---|---|---|
+| Authentication | User registration and login; one-time Super Admin provisioning; invited responder activation; access and refresh sessions; logout/revocation. | Normal User registration cannot choose an administrator or responder role. No demo credentials are prefilled in the React login. |
+| SOS and incident intake | Flutter User portal posts an incident, attaches authorization and an idempotency key, and requires a valid location choice. Follow-up questions and answers are supported. | The app explicitly tells users it does not contact emergency services. Never enter real emergency or sensitive personal data. |
+| Location | Device GPS permission and freshness checks, manual location option, and coordinates when available. Responder location can support recommendations when sufficiently recent and accurate. | Location permission may be unavailable; the user can use manual incident location. Responder locations are sensitive and must remain synthetic in demos. |
+| Incident lifecycle | Status, priority, report details, updates, cancellation, resolution, and coordinator review. | Priority is a prototype rule. Resolution reports are evidence/template summaries, not independent investigations. |
+| Assignment | Admin selects an eligible responder and optionally a compatible resource. Optional automatic assignment is policy-controlled and disabled by default in the model. | The backend rechecks authorization and eligibility. A score is not a validated dispatch recommendation. |
+| Responder management | Invitation, activation, capabilities, availability, account state, active task visibility, and task status updates. | Invitation email needs SMTP configuration. In-app notification records do not deliver email or push. |
+| Administration | Scoped Co-Admins, user/account status, resources, analytics, audit history, notifications, and automatic-assignment policy screens exist in the React app. | Backend permission dependencies remain authoritative; hiding UI controls alone is not security. |
+| Public historical data | Separate USGS earthquake and FEMA declaration tables, bounded explicit synchronization command, dashboard filters/charts, and Super Admin CSV upload with provenance. | These records are not operational incidents and do not create responders, assignments, notifications, or dispatches. Uploaded files are user-provided and not independently verified. No provider fetch occurs at app startup or page render. |
+| Incident analysis | Optional server-side OpenRouter adapter, structured result validation, deterministic fallback, durable analysis rows, and recovery polling are implemented. | `AI_PROVIDER=none` is the default. A live hosted Gemma request has not been verified; enabling a provider can incur costs and discloses incident text to that provider. |
+| Responder note drafting | Optional provider-assisted rewrite returns a draft for responder review; validation/fallback paths exist. | A rewrite does not itself change incident state. Provider output is not trusted as a source of facts. |
+| Admin Copilot | Fixed, read-only intent handling over available records. | It is not arbitrary SQL, a general chat model, or a mutation/dispatch interface. |
+| Local training workspace | A separate local JSON-backed workspace can be exposed in a Flutter debug build with `ENABLE_TRAINING_WORKSPACE=true`. | It is not server-synchronized operational data. The build flag is debug-only. |
+
+Automated unit/component tests and mocked provider tests exist. They do not prove a hosted service, a live OpenRouter request, mail delivery, production CORS, or a complete deployed workflow.
 
 ## Architecture
 
-### Components and boundaries
-
-- **Flutter client:** one app with User, Responder, and Admin portals. Session identity and role come from the server. The local training workspace is separate from authenticated API records and is not imported into the server database.
-- **Browser dashboard:** static HTML, CSS, and JavaScript in **web/**. It calls the same API and is not served by Uvicorn. Its service URL can be supplied at build time or entered on the sign-in screen.
-- **Isolated React staging dashboard:** a separate Vite + React + TypeScript app in **web/react-dashboard/**. It uses the existing `/api/v1` contracts and has its own build output; it does not replace the static dashboard or activation routes.
-- **FastAPI backend:** validates requests, enforces authentication/permissions/ownership, applies workflow policy, manages SQLAlchemy transactions, and exposes health endpoints.
-- **Database:** SQLite for local development and tests; PostgreSQL is required by production configuration. The Compose PostgreSQL service uses a persistent named volume.
-- **Analysis worker:** analysis rows are durable database records. FastAPI BackgroundTasks handles new work; a polling loop in each non-test API process recovers pending and stale work. This is not Celery, Redis, or a separately coordinated queue service.
-- **Optional provider:** server-side OpenRouter support defaults off. Deterministic analysis is the baseline. Provider output cannot authorize responder assignment.
-
-~~~mermaid
+```mermaid
 flowchart LR
-  F[Flutter User and Responder portals] -->|Bearer API requests| A[FastAPI]
-  W[Static coordinator dashboard] -->|Bearer API requests| A
-  A -->|SQLAlchemy transactions| D[(SQLite local and tests; PostgreSQL deployment)]
-  A --> Q[(Durable incident_analyses rows)]
-  Q --> B[Background task and per-process recovery poller]
-  B --> A
-  A -. optional server-side HTTPS .-> O[OpenRouter Gemma adapter]
-  A --> N[Persistent in-app notifications and audit records]
-~~~
+  M[Flutter Android client] -->|HTTPS or configured local API origin| API[FastAPI API]
+  W[React + Vite dashboard] -->|HTTPS or configured local API origin| API
+  API --> ORM[SQLAlchemy sessions]
+  ORM --> DB[(SQLite local and tests / PostgreSQL deployment target)]
+  API --> JOB[Background task and recovery poller]
+  JOB --> DB
+  JOB -. optional server-side provider call .-> AI[OpenRouter Gemma adapter]
+  API --> N[Persistent notifications and audit events]
+  HIST[Explicit public-data sync / authorized file upload] --> DB
+```
 
-### Request and analysis lifecycle
+FastAPI is the authority for authentication, permissions, ownership, incident transitions, and persistence. React and Flutter clients send bearer credentials for protected API routes. Public historical data is stored in dedicated tables, separate from operational incident and assignment tables.
 
-~~~mermaid
+### Registration and login
+
+```mermaid
 sequenceDiagram
-  participant Client
-  participant API as FastAPI API
+  participant C as Flutter or React client
+  participant A as FastAPI
+  participant D as SQL database
+  C->>A: POST /api/v1/auth/login (email, password)
+  A->>D: Check account, password hash, throttle and session
+  A-->>C: Access token, expiry, user and optional refresh token
+  C->>A: Protected request with Authorization: Bearer token
+  A->>D: Verify active account and persisted session
+  A-->>C: Role/permission-scoped response
+```
+
+React administrator sign-in sends only email/password and uses the build-configured API origin. Its session is held in the current browser tab's `sessionStorage` and revalidated with `/auth/me` after reload. Flutter stores credentials securely only for a remembered session; otherwise a session is held for the current app run.
+
+### SOS submission and dashboard retrieval
+
+```mermaid
+sequenceDiagram
+  participant U as Flutter User portal
+  participant A as FastAPI
+  participant D as SQL database
+  participant R as React dashboard
+  U->>A: POST /api/v1/user/incidents + bearer token + Idempotency-Key
+  A->>A: Validate role, request, location and idempotency key
+  A->>D: Commit incident, analysis row, update, audit and notifications
+  A-->>U: 201 created (or 200 for an idempotent replay), incident ID/reference
+  R->>A: GET /api/v1/incidents + authorized admin token
+  A->>D: Apply role/permission scope and read persisted incidents
+  A-->>R: Incident list
+  R->>R: Render list/details; refresh supported dashboard views periodically
+```
+
+The dashboard does not read directly from SQLite/PostgreSQL. If a record is missing, check that both clients target the same backend/database, the administrator has `view_incidents`, the API list response includes the record, and UI filters are cleared. React refreshes Overview, Incident Queue, Reports, and Notifications periodically while the page is visible and no dialog is open; this is not a push channel.
+
+For responder invitation links, the API generates `/activate.html#token=...`. React also accepts an invitation token supplied in the query string, removes the token from browser history before rendering the form, and posts it to `/api/v1/auth/accept-invitation`. Hosted activation uses the configured HTTPS API origin. A local activation page can request a service origin when no build-time origin exists; this exception is constrained to loopback HTTP development.
+
+### Assignment and responder status
+
+```mermaid
+sequenceDiagram
+  participant Admin as Authorized coordinator
+  participant API as FastAPI
   participant DB as SQL database
-  participant Task as Analysis task
-  participant Provider as Optional provider
-  Client->>API: Submit incident and Idempotency-Key
-  API->>DB: Validate and persist incident, pending analysis and events
-  API-->>Client: Return incident after commit
-  API->>Task: Schedule post-commit BackgroundTask
-  Task->>DB: Atomically claim pending row with UUID token
-  Task->>Provider: Optional analysis request
-  Provider-->>Task: Candidate structured result
-  Task->>Task: Validate result or build deterministic fallback
-  Task->>DB: Persist only if claim token is current
-~~~
+  participant Responder as Flutter responder
+  Admin->>API: POST /api/v1/admin/incidents/{id}/assign
+  API->>API: Recheck permission, candidate, resource and active-assignment rules
+  API->>DB: Commit assignment, status/history and notifications
+  Responder->>API: POST /api/v1/responder/incidents/{id}/status
+  API->>DB: Verify ownership and allowed next status; persist update
+  API-->>Responder: Updated task status
+```
 
-## Application behavior
+### External integrations
 
-### Intake and coordination
+- **USGS and FEMA:** called only by the explicit bounded importer; no request is made just by opening the dashboard.
+- **OpenRouter:** optional, server-side only, with `google/gemma-4-31b-it` as the configured default model. The checked-in Render blueprint selects `AI_PROVIDER=none`.
+- **SMTP:** optional responder invitation delivery. It is not used for incident notifications.
+- **Vercel, Render, Supabase:** configuration/templates and an operations guide exist, but no live provider project or deployed application is verified.
 
-1. A User submits an incident at POST /api/v1/user/incidents with an Idempotency-Key.
-2. Pydantic validation checks category, description, location, and severity/urgency. GPS latitude and longitude must be supplied together; GPS submissions require a recent capture timestamp.
-3. In one transaction, the API writes the incident, initial update, pending analysis row, audit event, and in-app notifications. Reusing the same key for the same reporter returns the existing incident.
-4. Deterministic rules calculate priority. Automatic assignment is attempted only if the separate policy is enabled and all constraints pass; otherwise the incident remains for coordinator review.
-5. Coordinators review, assign, reassign, cancel, or resolve through authenticated routes. Responders can advance only their own active assignment through permitted states.
+## Repository structure
 
-### Analysis, fallback, and recovery
-
-- **AI_PROVIDER=none** (default) selects the rules-based baseline without a provider request.
-- OpenRouter uses the configured model (default **google/gemma-4-31b-it**) and structured output. The response is parsed and validated against the result schema and source evidence before persistence.
-- Invalid, unavailable, rate-limited, and failed output follows deterministic fallback paths.
-- **AI_MAX_ATTEMPTS** defaults to 2 (maximum 3). Retries apply to explicit transient provider-status errors. Timeouts and connection failures are not automatically retried by that adapter path because a provider may already have received the request.
-- Each task claim gets a UUID ownership token. Result updates and completion audit events require the current token. Recovery and authorized admin retry invalidate earlier tokens.
-- The polling loop processes pending work and recovers processing rows older than five minutes. The job attempt limit is three; exhausted work becomes unavailable. A poller runs inside each non-test API process.
-- Ownership fencing protects persistence, not provider delivery. A crash after provider acceptance but before result persistence can lead to a duplicate provider request. Exactly-once delivery is not guaranteed.
-
-### Authentication and permissions
-
-- Passwords are hashed with Argon2 through pwdlib and must be 12–128 characters.
-- Access JWTs are short-lived (30 minutes by default) and checked against an active database session and current account role on authenticated requests.
-- Remember Me is unchecked by default. When selected, the server issues a random refresh token, stores only its hash, and rotates it during refresh. Flutter uses secure storage; the browser dashboard uses sessionStorage.
-- Public registration creates only User accounts. The first Super Admin is provisioned by the CLI; responder accounts use invitations and activation.
-- Co-Admin permissions are enforced by backend dependencies on every request. Hiding controls in a client is not an authorization boundary.
-- Invitation throttling is process-local, not a shared multi-instance limiter.
-
-## Repository map
-
-~~~
+```text
 .
-├── .github/workflows/quality.yml       CI checks and gated signed Android release
-├── android/                            Android manifests, Gradle and launcher assets
-├── assets/brand/                       Flutter brand asset
+├── .github/workflows/quality.yml      # Backend, Flutter, React, and gated APK CI
+├── android/                           # Flutter Android project
 ├── backend/
-│   ├── app/
-│   │   ├── api.py                      HTTP routes and request orchestration
-│   │   ├── config.py                   Settings and production validation
-│   │   ├── database.py                 SQLAlchemy engine, sessions and SQLite setup
-│   │   ├── dispatch.py                 Deterministic priority and distance helpers
-│   │   ├── intelligence.py             Provider adapters, validation, fallback and queue
-│   │   ├── main.py                     FastAPI lifespan, CORS and health endpoints
-│   │   ├── migration_lock.py           PostgreSQL transaction advisory lock
-│   │   ├── models.py                   ORM schema and constraints
-│   │   ├── provision_admin.py          One-time Super Admin bootstrap CLI
-│   │   ├── schemas.py                  Pydantic request/response models
-│   │   ├── seed_demo.py                Opt-in synthetic SQLite dataset
-│   │   └── security.py                 Password, JWT, session and role dependencies
-│   ├── migrations/                     Alembic environment and revision history
-│   ├── tests/                           SQLite tests and opt-in PostgreSQL tests
-│   ├── compose.yaml                     PostgreSQL 17 and persistent volume
-│   ├── postgres_test_safety.py           Fail-closed PostgreSQL test validation
-│   ├── start.sh                         Migration-before-Uvicorn entry point
-│   └── requirements*.txt                Backend/test dependency ranges
+│   ├── app/                           # FastAPI routes, schemas, models, config and services
+│   ├── migrations/versions/           # Alembic revisions
+│   ├── tests/                         # Backend unit/API and opt-in PostgreSQL tests
+│   ├── Dockerfile
+│   ├── compose.yaml                   # Local PostgreSQL service/volume definition
+│   ├── start.sh                       # Migration-first server startup when invoked
+│   └── requirements*.txt
 ├── docs/
-│   ├── audit/                           Architecture, discovery and test audits
-│   ├── operations/                      Hosting and backup/recovery guidance
-│   ├── requirements/                    Requirements and traceability
-│   ├── DEMO_ACCOUNTS.md                 Synthetic seed-account behavior
-│   ├── DESIGN_SYSTEM.md                 UI design tokens
-│   ├── EXTERNAL_REQUIREMENTS.md         Environment/external requirements
-│   ├── GEMMA_INTEGRATION_AUDIT.md       Provider, queue, migration and release evidence
-│   └── UX_UI_AUDIT.md                   UI/UX findings
+│   ├── architecture/                  # Frontend migration and historical data
+│   ├── operations/                    # Hosting and backup/recovery
+│   ├── audit/                         # Architecture, testing and release audits
+│   └── requirements/                  # Requirements and traceability
 ├── lib/
-│   ├── data/                            API client, URL validation and training store
-│   ├── domain/                          Client-side deterministic rules/models
-│   ├── presentation/                    Flutter portals, design system and training UI
-│   └── main.dart                        Flutter application entry point
-├── scripts/                             Web config and protected Android release build
-├── test/                                Flutter unit, API-client and widget tests
+│   ├── data/                          # Flutter API client, API config and local store
+│   ├── domain/                        # Client-side models and deterministic rules
+│   └── presentation/                  # Flutter portals, screens and design system
+├── scripts/                           # Protected Android release build helper
+├── test/                              # Flutter tests
 ├── web/
-│   ├── admin/                           Static coordinator dashboard and analytics tests
-│   ├── activate.html                    Invitation activation page
-│   ├── react-dashboard/                 Isolated React staging dashboard
-│   └── index.html                       Flutter Web entry point
-├── render.yaml                          Render API service template
-├── vercel.json                          Static dashboard build/output configuration
-├── pubspec.yaml / pubspec.lock          Flutter dependencies and lock file
-└── README.md                            This guide
-~~~
+│   ├── assets/brand/official-logo.svg  # Shared React branding asset
+│   ├── index.html                     # Flutter Web source entry point
+│   ├── manifest.json, icons/          # Flutter Web metadata/assets
+│   └── react-dashboard/              # React/Vite/TypeScript coordinator site
+│       ├── src/app/                   # Dashboard and invitation activation screens
+│       ├── src/api/, src/auth/        # API client/config and browser session
+│       ├── package.json, package-lock.json
+│       └── vercel.json                # Vercel config for this project root
+├── render.yaml                        # Render API blueprint
+├── vercel.json                        # Repository-level Vercel config
+├── pubspec.yaml, pubspec.lock         # Flutter project and resolved dependencies
+└── README.md
+```
 
-Root files also include **SETUP.md** (legacy build-staging notes), **analysis_options.yaml**, and an older debug APK in **release/**. Generated directories, local virtual environments, and secret files are intentionally omitted.
+`web/admin/` static dashboard sources were removed from the current working tree; the maintained dashboard is `web/react-dashboard/`. Flutter Web output remains `build/web/`. Local databases, `.env` files, virtual environments, and generated build/cache folders are not source configuration and should not be committed.
+
+## Technology stack
+
+| Technology | Use |
+|---|---|
+| Flutter / Dart | Android mobile client and separate Flutter Web target. Version constraints are in `pubspec.yaml`; CI selects Flutter 3.47.7. |
+| React 18, TypeScript, Vite 6 | Browser coordinator dashboard and activation screen. Exact package versions are in `web/react-dashboard/package-lock.json`. |
+| Python, FastAPI, Pydantic Settings | API routing, request validation, settings and OpenAPI docs. Dependency ranges are in `backend/requirements*.txt`. |
+| SQLAlchemy 2, Alembic | ORM/session handling and versioned schema migrations. |
+| SQLite | Local development and isolated automated test database support. |
+| PostgreSQL + psycopg | Required database URL dialect for staging/production settings. |
+| PyJWT, pwdlib Argon2 | Signed access tokens and password hashing. |
+| HTTPX | Optional server-side provider adapters and API tests. |
+| pytest, Vitest, Testing Library, Flutter Test | Backend, React, and mobile tests. |
+| Vercel, Render, Supabase | Intended separate React hosting, container API and PostgreSQL targets. These are not connected/verified. |
+
+CI currently uses Python 3.13, Node.js 24, Flutter 3.47.7, and Java 17. Those are workflow selections, not a claim that every developer environment has those versions.
 
 ## Prerequisites
 
-| Component | Requirement | Use |
-|---|---|---|
-| Python | 3.12 or newer; CI uses 3.13 | API, migrations, CLI, tests |
-| Flutter/Dart | Flutter 3.47.7 in CI; Dart SDK constraint 3.13.5+ | Android client, widget tests, Flutter web target |
-| Java | JDK 17 for Android builds | Gradle/Android toolchain |
-| Android SDK / Platform Tools | Emulator/device and APK builds | Android client |
-| Node.js | Node 24 in CI | Static dashboard checks and isolated React dashboard |
-| Docker Compose | Optional; only for PostgreSQL development | Compose PostgreSQL service |
-| PostgreSQL | PostgreSQL 17 in Compose; production configuration requires PostgreSQL | Deployment and explicitly approved PG tests |
+### Required for local development
 
-Redis, Celery, and a message broker are not used. External provider accounts are not needed for ordinary local development or tests. Hosting accounts are not configured in the repository.
+- Git.
+- Python 3.12+ and `venv` for the backend (CI uses 3.13).
+- Node.js/npm compatible with the checked-in lockfile (CI uses Node 24).
+- Flutter SDK/Dart satisfying `pubspec.yaml` (CI uses Flutter 3.47.7).
+- Android SDK and Platform Tools only for Android emulator/device work.
+
+SQLite is sufficient for a new isolated local database. Docker Compose and PostgreSQL are optional for local PostgreSQL work. A Vercel/Render/Supabase account is not required for local tests. Provider API keys are not needed for provider-off operation or mocked tests.
 
 ## Local development setup
 
-These steps describe a new isolated development database. Do not point them at a shared or unidentified database.
+These instructions are for a **new, isolated development database**, not an existing staging or production database. Do not overwrite an existing `.env` or database file. If either already exists, inspect and back it up before changing configuration.
 
-### Backend with SQLite
+### 1. Clone and prepare the API
+
+```sh
+git clone https://github.com/QaziZaid16/emergency_coordination_system.git
+cd emergency_coordination_system
+
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate               # Windows PowerShell: .\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements-dev.txt
+cp .env.example .env                    # Windows PowerShell: Copy-Item .env.example .env
+```
+
+Edit the new `backend/.env` locally. Set `ENVIRONMENT=development` explicitly (the checked-in example may not include it), set a new private `JWT_SECRET` with at least 32 characters, and choose a new SQLite file. For example:
+
+```dotenv
+ENVIRONMENT=development
+DATABASE_URL=sqlite:///./data/coordination.db
+JWT_SECRET=<new-private-random-value-at-least-32-characters>
+CORS_ORIGINS=http://127.0.0.1:5173
+PUBLIC_APP_URL=http://127.0.0.1:8000
+AI_PROVIDER=none
+```
+
+Do not put an actual credential in the README, a Dart define, a Vite variable, or Git. Pydantic Settings loads the process environment and `.env` relative to the backend process working directory; process environment values take precedence.
+
+### 2. Migrate and provision a local administrator
+
+Still from `backend/` with the virtual environment active:
+
+```sh
+alembic upgrade head
+python -m app.provision_admin --email admin@example.org --display-name "Local Operations Admin"
+```
+
+The provisioning command prompts for the password without echo and creates only the first Super Admin. Do not use it against a database until its target is known. For an existing database with schema drift or an unexpected Alembic revision, stop and diagnose before applying migrations. Never replace migration history with `stamp` just to make an upgrade pass.
+
+### 3. Start the API
+
+From `backend/`:
+
+```sh
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+The backend listens on loopback. Open another terminal and check:
+
+- Liveness: <http://127.0.0.1:8000/health/live>
+- Database readiness: <http://127.0.0.1:8000/health/ready>
+- Interactive OpenAPI: <http://127.0.0.1:8000/docs>
+
+Development/test app startup can create missing tables with SQLAlchemy metadata, but this does not replace Alembic. For a fresh local database, migrate first. Hosted environments use migrations and do not run `create_all()`.
+
+### 4. Install and start React
 
 From the repository root:
 
-~~~sh
-git clone https://github.com/QaziZaid16/emergency_coordination_system.git
-cd emergency_coordination_system
-git switch main
+```sh
+npm ci --prefix web/react-dashboard
+```
 
-cd backend
-python3 --version
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements-dev.txt
-cp .env.example .env
-~~~
+Create `web/react-dashboard/.env.local` with the **public API origin** (no credentials or path):
 
-Configure the new backend/.env locally; never commit or paste it. Safe local defaults:
+```dotenv
+VITE_ECS_API_ORIGIN=http://127.0.0.1:8000
+```
 
-- ENVIRONMENT=development
-- DATABASE_URL=sqlite:///./data/coordination.db
-- A newly generated private JWT_SECRET of at least 32 characters
-- AI_PROVIDER=none and an empty provider key
-- SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD, and SMTP_FROM unset/empty unless invitation email is deliberately configured
+Then start Vite:
 
-Pydantic loads process environment settings and backend/.env (when running from backend/); process environment takes precedence. Never use real incident information or passwords in a demo.
+```sh
+npm run dev --prefix web/react-dashboard
+```
 
-On a new SQLite path, migrate and provision the initial administrator:
+Open the URL Vite prints, normally <http://127.0.0.1:5173/>. Set backend `CORS_ORIGINS` to the exact origin used by the browser. Restart Vite after changing environment values. The login page accepts email/password only and fails closed when API configuration is missing or invalid.
 
-~~~sh
-alembic upgrade head
-python -m app.provision_admin --email admin@example.org --display-name 'Local Operations Admin'
-~~~
+### 5. Set up and run Flutter
 
-The provisioning CLI prompts for a password without echo and creates only the first Super Admin. Its optional credentials-file mode is restricted to local SQLite development and writes generated credentials to a new private mode-0600 file; keep that file out of Git and shared directories.
+From the repository root:
 
-Start the API bound to loopback:
+```sh
+flutter doctor -v
+flutter pub get
+flutter devices
+flutter run -d <device-id> --dart-define=API_BASE_URL=http://127.0.0.1:8000
+```
 
-~~~sh
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-~~~
+For an Android emulator, `10.0.2.2` commonly routes to the development host:
 
-In a second terminal, serve only static files on loopback:
+```sh
+flutter run -d <emulator-id> --dart-define=API_BASE_URL=http://10.0.2.2:8000
+```
 
-~~~sh
-cd /path/to/emergency_coordination_system
-python3 -m http.server 8080 --bind 127.0.0.1 --directory web
-~~~
+For a USB-connected Android device, one loopback option is Android port reversal:
 
-Open http://localhost:8080/admin/ and enter http://127.0.0.1:8000 as the API origin. Default development CORS includes localhost:8080. The dashboard has no default login.
-
-For an Android emulator, the host alias is commonly 10.0.2.2. For a USB-connected device, Android Platform Tools can reverse the port:
-
-~~~sh
+```sh
 adb reverse tcp:8000 tcp:8000
 flutter run -d <device-id> --dart-define=API_BASE_URL=http://127.0.0.1:8000
-~~~
+```
 
-The client validator permits only loopback/emulator HTTP in debug builds; release builds require HTTPS. Private-LAN HTTP for phones is not enabled. Do not broaden the API bind, publish a port, or weaken client URL validation without approved network scope and implementation review.
+On a physical phone, `127.0.0.1` means the phone itself. USB `adb reverse` maps the phone's port to the development host. Debug builds also allow private-network HTTP origins, but only use them on a trusted, explicitly scoped network with the backend and CORS configured accordingly. Release builds require HTTPS. Never expose a local API publicly just to bypass device networking.
 
-For a fresh Flutter checkout, run flutter doctor -v, then flutter pub get from the repository root. Android emulator/device runs additionally need an Android SDK and Platform Tools. The browser dashboard has no npm dependency installation step; Node is used by its configuration/build checks.
+The app also has a debug-only local training workspace behind `--dart-define=ENABLE_TRAINING_WORKSPACE=true`; its JSON store is separate from the API database. Do not confuse training data with server incidents.
 
-### Optional synthetic seed
+### Windows and Linux notes
 
-The seed utility requires development mode, SQLite, and an explicit confirmation flag. It is additive/repeatable and does not reset existing data. It creates synthetic accounts, responders, incidents, assignments, and a resource. Generated passwords are printed once on first creation; protect them. Never seed production or an unknown/shared database. See [demo account details](docs/DEMO_ACCOUNTS.md).
-
-### PostgreSQL Compose warning
-
-backend/compose.yaml declares PostgreSQL 17 and a persistent volume named **coordination-data**. The API host port is loopback-only; PostgreSQL has no published host port. The repository does not establish the actual volume's identity, ownership, history, or contents. **Do not attach, migrate, reset, or delete an existing volume unless an authorized operator has verified it is dedicated and safe.** Do not run docker compose down -v. The Compose database is not an approved disposable test target.
+The Python, npm, Alembic, and Flutter commands are platform-neutral once the tools are installed. On Windows, activate the virtual environment with `.venv\\Scripts\\Activate.ps1` in PowerShell and copy the environment template with `Copy-Item`. Android device commands require the Android SDK/ADB on `PATH`. Linux/macOS shell commands above use POSIX syntax; PowerShell users should use native environment-variable syntax when setting a one-command override.
 
 ## Configuration reference
 
-Defaults below come from source and checked-in configuration; they are not a recommendation to reuse production credentials locally.
+Backend settings are defined by `backend/app/config.py`; local sample values are in `backend/.env.example`. Optional testing/build flags are defined in their respective fixtures and Vite config.
 
-| Variable | Purpose | Required/default | Secret? / notes |
-|---|---|---|---|
-| DATABASE_URL | SQLAlchemy target | SQLite file default; production requires postgresql+psycopg URL | Credential-bearing URLs are secret |
-| ENVIRONMENT | Lifecycle/config mode | development | Production has stricter validation and does not create schema in app lifespan |
-| STAGING_RESPONDER_INVITATION_HANDOFF | Return a one-time responder activation link to an authorized staging administrator | false | Accepted only with ENVIRONMENT=staging and SMTP_HOST empty; production rejects it |
-| JWT_SECRET | JWT signing | Required outside tests; 32+ characters | Secret; use a private random value |
-| ACCESS_TOKEN_MINUTES | Access token lifetime | 30 | No |
-| REMEMBER_ME_DAYS | Refresh session lifetime | 30; range 1–365 | No |
-| CORS_ORIGINS | Allowed browser origins | Localhost development origins | Use exact HTTPS origins in production |
-| PUBLIC_APP_URL | Invitation links/public origin | Localhost default | Production requires a real HTTPS origin |
-| SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, SMTP_FROM | Responder invitation email | Host blank; port 587 | Credentials secret; empty host prevents SMTP delivery |
-| AI_PROVIDER | Analysis provider selection | none | none/off selects deterministic analysis |
-| OPENROUTER_API_KEY | Server-side provider credential | Empty | Secret; never put in a client build |
-| OPENROUTER_BASE_URL | OpenRouter base URL | https://openrouter.ai/api/v1 | OpenRouter requires HTTPS |
-| OPENROUTER_MODEL | OpenRouter model | google/gemma-4-31b-it | Model identifier |
-| AI_BASE_URL, AI_API_KEY, AI_MODEL | Legacy OpenAI-compatible adapter settings | Blank | AI_API_KEY is secret |
-| AI_TIMEOUT_SECONDS | Provider timeout | 8 seconds; range 1–30 | No |
-| AI_MAX_ATTEMPTS | Eligible transient response attempts | 2; range 1–3 | No; not exactly-once |
-| AI_RATE_LIMIT_PER_MINUTE | Process-local provider-call limit | 60; range 1–600 | Not shared across replicas |
-| AI_SHARE_INCIDENT_LOCATION | Include location label in provider payload | false | Coordinates are not sent |
-| RECOMMENDATION_DISTANCE_WEIGHT, RECOMMENDATION_CAPABILITY_WEIGHT, RECOMMENDATION_WORKLOAD_WEIGHT | Responder ranking weights | 45, 35, 20 | Prototype scoring |
-| PORT | Deployment Uvicorn port | 8000 fallback | Platform supplied where applicable |
-| POSTGRES_PASSWORD | Local Compose database password | Required by Compose interpolation | Secret; local Compose only |
-| API_BASE_URL | Flutter compile-time API origin | Empty/unconfigured | Public URL, not secret; release requires HTTPS |
-| ENABLE_TRAINING_WORKSPACE | Debug feature flag | Disabled unless explicitly true | Compile-time flag; local training data only |
-| ECS_API_BASE_URL | Static dashboard build-time API origin | Empty permits manual entry; required by Vercel build | Public URL; script requires HTTPS and rejects placeholders |
-| ECS_POSTGRES_TEST_MODE | Opt into PostgreSQL test configuration | Disabled unless 1 | Never enable without an approved disposable target |
-| ECS_POSTGRES_TEST_DATABASE_URL | Dedicated PostgreSQL test URL | Required in opt-in mode | Keep credential-bearing URL protected |
-| ECS_POSTGRES_TEST_TARGET_DISPOSABLE | Disposable-target declaration | Must equal 1 | Declaration alone does not prove isolation |
-| ECS_POSTGRES_TEST_RUN_ID | Unique run token | 8–32 lowercase alphanumeric characters | Database must be ecs_test_<run_id> |
-| ECS_POSTGRES_TEST_ALLOWED_HOSTS | Exact hostname allowlist | Required in opt-in mode | Comma-separated exact hosts |
-| ECS_POSTGRES_TEST_ALLOWED_DATABASES | Exact database allowlist | Required in opt-in mode | Comma-separated exact database names |
-
-The PostgreSQL fixture parses and validates the test URL before app imports. It rejects SQLite, broad allowlists, mismatched database names, the Compose service/database, and a PostgreSQL host matching the runtime target. PostgreSQL tests are skipped by default. Some tests deliberately change the disposable target schema; use only an explicitly approved disposable PostgreSQL 17 database. The fixture does not provision or clean up a database.
-
-Android release signing values are supplied only to protected GitHub Actions jobs; see [hosting guidance](docs/operations/hosting.md) and [the CI workflow](.github/workflows/quality.yml). Never put signing keys or passwords in Dart defines, web assets, or the repository.
-
-## Running the components
-
-### API
-
-From backend/ with the development environment active:
-
-~~~sh
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-~~~
-
-The development/test lifespan creates missing tables with SQLAlchemy metadata. For a new database, run Alembic first. If an earlier startup used create_all and Alembic later reports existing tables, stop and preserve the database; do not delete or blindly stamp it. See [backend setup](backend/README.md).
-
-- OpenAPI: http://127.0.0.1:8000/docs
-- Liveness: http://127.0.0.1:8000/health/live
-- Database readiness: http://127.0.0.1:8000/health/ready
-
-### Browser dashboard
-
-The static site lives in web/. It can be served locally with Python's static file server; the API remains a separate process. The dashboard polls operational and notification data while visible and provides manual refresh.
-
-### Isolated React coordinator dashboard
-
-The React application in `web/react-dashboard/` is for separate staging review. It does not change the current `/`, `/admin`, or `/activate` routes. From the repository root:
-
-~~~sh
-cp web/react-dashboard/.env.example web/react-dashboard/.env.local
-# Set VITE_ECS_API_ORIGIN in .env.local to the real HTTPS API origin (origin only).
-npm ci --prefix web/react-dashboard
-npm run dev --prefix web/react-dashboard
-~~~
-
-The API must allow the local Vite origin through its existing CORS configuration. The React app rejects HTTP, placeholder domains, and API URLs containing credentials, paths, queries, or fragments. For tests and a production build, run:
-
-~~~sh
-npm test --prefix web/react-dashboard
-VITE_ECS_API_ORIGIN=https://your-real-api-host.tld npm run build --prefix web/react-dashboard
-npm run preview --prefix web/react-dashboard
-~~~
-
-The production build is written to `web/react-dashboard/dist/`, separate from Flutter's `build/web/`. To stage it later, configure a **separate Vercel project** with Root Directory `web/react-dashboard`, Framework Preset Vite, Build Command `npm run build`, Output Directory `dist`, and public build variable `VITE_ECS_API_ORIGIN` set to the real HTTPS API origin. Keep the existing Vercel project and invitation activation host unchanged; responder invitations currently point to the activation host configured by the backend. Provider setup and deployment are separate manual steps.
-
-### Flutter
-
-~~~sh
-flutter run -d <device-id> --dart-define=API_BASE_URL=http://127.0.0.1:8000
-flutter build apk --debug --dart-define=API_BASE_URL=http://127.0.0.1:8000
-flutter build web --no-pub
-~~~
-
-The Flutter web target is separate from the static deployment site: Vercel publishes `web/`, whose `/` and `/admin` routes open the static coordinator dashboard; the Flutter web build is emitted separately under `build/web/`. A Flutter build without API_BASE_URL can show the login UI but cannot connect to a service.
-
-## HTTP API reference
-
-The router prefix is /api/v1. Use the running OpenAPI page at /docs for generated field-level request and response schemas. The table lists routes declared in backend/app/api.py; server-side authorization also checks account state, incident ownership, and Co-Admin permission scopes.
-
-### Authentication
-
-| Method and path | Access | Request and successful result |
+| Variable | Used by | Purpose / requiredness |
 |---|---|---|
-| POST /api/v1/auth/login | Public | LoginRequest: email, password, optional remember_me; returns LoginResponse with access token, expiry, optional refresh token, session expiry, and UserView. |
-| POST /api/v1/auth/register | Public | UserRegister: email, display_name, 12–128 character password, optional remember_me; creates only User role, 201. |
-| POST /api/v1/auth/accept-invitation | Public invitation token | InvitationAccept: token and password; activates invited responder. |
-| POST /api/v1/auth/refresh | Refresh credential | RefreshRequest; rotates refresh token and issues LoginResponse. |
-| POST /api/v1/auth/logout | Authenticated | Revokes current session; 204. |
-| GET /api/v1/auth/me | Authenticated | Returns current UserView. |
+| `ENVIRONMENT` | Backend | Explicitly required by `get_settings()`. Accepted: `development`, `test`, `staging`, `production`. Hosted production settings are stricter. |
+| `DATABASE_URL` | Backend/Alembic | SQLAlchemy database target. Local default is SQLite; staging/production validation requires a complete `postgresql+psycopg://` URL. Treat credential-bearing URLs as secrets. |
+| `JWT_SECRET` | Backend | Required outside test mode; minimum 32 characters. Secret used to sign access tokens and hash login-attempt identifiers. |
+| `ACCESS_TOKEN_MINUTES` | Backend | Access token lifetime; default 30 minutes. |
+| `REMEMBER_ME_DAYS` | Backend | Remembered-session maximum lifetime; default 30 days, range 1–365. |
+| `CORS_ORIGINS` | Backend | Comma-separated browser origins. Production requires real HTTPS origins, no wildcard/placeholders/path/query. |
+| `PUBLIC_APP_URL` | Backend | Canonical origin used to create invitation activation links. Production requires a real HTTPS origin. |
+| `PORT` | `backend/start.sh` | Optional platform-supplied listening port; defaults to 8000. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | Backend | Optional responder invitation email. SMTP password is secret; without a configured host, delivery is unavailable outside supported development handoff. |
+| `STAGING_RESPONDER_INVITATION_HANDOFF` | Backend | Defaults false; permits staging-only activation-link handoff when SMTP is disabled. It is rejected outside staging. |
+| `AI_PROVIDER` | Backend | Defaults to `none`; supported values include `none`, `off`, `openrouter`, and `openai_compatible`. Provider remains off unless selected. |
+| `OPENROUTER_API_KEY` | Backend only | Required secret when OpenRouter is explicitly selected. Never set as a `VITE_` variable or Flutter define. |
+| `OPENROUTER_BASE_URL`, `OPENROUTER_MODEL` | Backend only | OpenRouter API base and model; defaults are `https://openrouter.ai/api/v1` and `google/gemma-4-31b-it`. |
+| `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` | Backend only | Legacy OpenAI-compatible adapter settings; key is secret. |
+| `AI_TIMEOUT_SECONDS`, `AI_MAX_ATTEMPTS`, `AI_RATE_LIMIT_PER_MINUTE`, `AI_SHARE_INCIDENT_LOCATION` | Backend | Provider timeout/retry/rate settings and whether a location label may be shared; see config validation for bounds. Defaults: 8 seconds, 2 attempts, 60 calls/minute, and false. Rate limiting is process-local. |
+| `RECOMMENDATION_DISTANCE_WEIGHT`, `RECOMMENDATION_CAPABILITY_WEIGHT`, `RECOMMENDATION_WORKLOAD_WEIGHT` | Backend | Deterministic recommendation scoring weights; defaults 45, 35, 20. These scores are not validated policy. |
+| `POSTGRES_PASSWORD` | `backend/compose.yaml` | Required Compose interpolation for local PostgreSQL; secret. The Compose file defines a persistent named volume, so do not treat it as disposable. |
+| `API_BASE_URL` | Flutter compile-time | Public API origin passed with `--dart-define`; no credential. Release requires HTTPS; debug allows loopback/private origins. |
+| `ENABLE_TRAINING_WORKSPACE` | Flutter compile-time | Debug-only boolean flag to enable the local JSON training workspace. |
+| `VITE_ECS_API_ORIGIN` | React/Vite | Public API origin embedded into the browser build. Local development permits loopback HTTP; deployment build requires a real HTTPS origin without path/query/credentials. |
+| `VITE_ECS_ALLOW_UNCONFIGURED_BUILD` | CI-only Vite override | `true` permits compile-only CI build without a production API origin. Do not set in Vercel; it bypasses the build guard. |
+| `ECS_POSTGRES_TEST_MODE`, `ECS_POSTGRES_TEST_DATABASE_URL`, `ECS_POSTGRES_TEST_TARGET_DISPOSABLE`, `ECS_POSTGRES_TEST_RUN_ID`, `ECS_POSTGRES_TEST_ALLOWED_HOSTS`, `ECS_POSTGRES_TEST_ALLOWED_DATABASES` | Backend PostgreSQL test fixture | Explicit opt-in for a dedicated disposable PostgreSQL test target. The fixture validates URL/host/database allowlists; it does not provision a DB. Some tests alter/drop schema. Never point it at staging or production. |
 
-### Incidents, updates, intake, reports, and notifications
+`.env`, `.env.local`, database URLs, provider keys, signing files and passwords must stay out of version control. Public client origins are configuration, not secrets; API keys and signing credentials must never enter client bundles.
 
-| Method and path | Access | Request / result |
+## API reference
+
+The router prefix is `/api/v1`. The current complete field-level schema is generated by FastAPI at `/docs` for a running backend. Protected routes require `Authorization: Bearer <access-token>` unless noted. `admin` means a Super Admin or a scoped Co-Admin with the route's required permission; backend authorization also checks account status and ownership. The table below summarizes implemented routes from `backend/app/api.py` and models in `backend/app/schemas.py`.
+
+### Authentication and invitations
+
+| Method and path | Access | Request / behavior |
 |---|---|---|
-| POST /api/v1/user/incidents | User | IncidentCreate and Idempotency-Key header (8–128 chars); first request 201, matching replay 200. |
-| GET /api/v1/incidents | Signed-in; role/permission and ownership filtered | Optional status/query filters; returns permitted incidents. |
-| GET /api/v1/incidents/{incident_id} | Signed-in; authorized reporter, assigned responder, or coordinator | Returns one incident view. |
-| GET /api/v1/incidents/{incident_id}/updates | Signed-in; incident access required | Returns update history. |
-| GET /api/v1/incidents/{incident_id}/intake | Signed-in; incident access required | Returns questions, saved answers, and dispatch status. |
-| POST /api/v1/incidents/{incident_id}/intake/answers | Reporter | IntakeAnswers; stores user-reported answers. |
-| POST /api/v1/incidents/{incident_id}/updates | Authorized reporter or assigned responder | MessageCreate; persists an update subject to route rules. |
-| POST /api/v1/responder/incidents/{incident_id}/rewrite | Assigned responder | RewriteRequest; returns a draft and status, does not change incident state. |
-| GET /api/v1/incidents/{incident_id}/report | Authorized reporter, assigned responder, or coordinator | Returns deterministic resolution report when available. |
-| POST /api/v1/admin/incidents/{incident_id}/report/review | Admin with applicable permission | ReportReview; records review note and reviewer metadata. |
-| GET /api/v1/notifications | Authenticated | Current account's in-app notifications. |
-| PATCH /api/v1/notifications/read-all | Authenticated | Marks current account's notifications read. |
-| PATCH /api/v1/notifications/{notification_id}/read | Authenticated owner | Marks one notification read. |
+| `POST /auth/login` | Public | `email`, `password`, optional `remember_me`; returns access token, expiry, user and optional refresh token. Login attempts are rate-limited using a hashed identifier bucket. |
+| `POST /auth/register` | Public | `email`, `display_name`, password (12–128 chars), optional `remember_me`; creates a normal User only; `201`. |
+| `POST /auth/accept-invitation` | One-time invitation token | `token`, `password`; activates a pending responder invitation. |
+| `POST /auth/refresh` | Refresh token | Rotates a remembered refresh token and returns a new access token. |
+| `POST /auth/logout` | Authenticated | Revokes the current server-side session; `204`. |
+| `GET /auth/me` | Authenticated | Returns the current user identity/role/permissions. |
 
-### Coordinator and administration
+### Incidents, intake, reports and notifications
 
-| Method and path | Access | Request / result |
+| Method and path | Access | Request / behavior |
 |---|---|---|
-| GET /api/v1/admin/dashboard | Admin with dashboard access | Coordinator dashboard summary. |
-| GET /api/v1/admin/analytics | Admin with reports access | Optional days window; descriptive database aggregates, not forecasts. |
-| POST /api/v1/admin/copilot | Admin with read permissions | CopilotQuestion; rules-based read-only answer with sources where applicable. |
-| GET /api/v1/admin/responders | Admin with dashboard or responder-management permission | Responder accounts and profiles. |
-| POST /api/v1/admin/invitations/responders | Admin with manage_responders | ResponderInviteCreate; may send email only if SMTP is configured. |
-| GET /api/v1/admin/invitations | Admin with manage_responders | Invitation status; stored token hashes are not exposed. |
-| POST /api/v1/admin/invitations/{invitation_id}/revoke | Admin with manage_responders | Revokes invitation. |
-| POST /api/v1/admin/invitations/responders/{user_id}/resend | Admin with manage_responders | Rotates/resends eligible invitation; rate limited. |
-| GET /api/v1/admin/users | Admin with applicable account permission | Optional role filter; returns accounts. |
-| POST /api/v1/admin/users | Admin with manage_users | UserCreate; creates User or Responder per schema. |
-| PATCH /api/v1/admin/users/{user_id}/active | Authorized account manager | Query parameter active; deactivation revokes sessions. |
-| GET /api/v1/admin/coadmins | Super Admin | Lists Co-Admins. |
-| POST /api/v1/admin/coadmins | Super Admin | CoAdminCreate; creates scoped permissions. |
-| PATCH /api/v1/admin/coadmins/{user_id}/active | Super Admin | Query parameter active. |
-| PATCH /api/v1/admin/coadmins/{user_id}/permissions | Super Admin | Permission list. |
-| PUT /api/v1/admin/responders/{responder_id}/capabilities | Admin with manage_responders | Capability list. |
-| PATCH /api/v1/admin/responders/{responder_id}/availability | Admin with manage_responders | AvailabilityUpdate. |
-| GET /api/v1/admin/resources | Admin with dashboard or resource-management access | Lists resources. |
-| POST /api/v1/admin/resources | Admin with manage_resources | ResourceCreate. |
-| PATCH /api/v1/admin/resources/{resource_id} | Admin with manage_resources | ResourceCreate and optional active query parameter. |
-| GET /api/v1/admin/incidents/{incident_id}/recommendations | Admin with incident view access | Eligible responder candidates and reasons. |
-| GET /api/v1/admin/incidents/{incident_id}/duplicates | Admin with incident view access | Review-only duplicate candidates. |
-| POST /api/v1/admin/incidents/{incident_id}/analysis/retry | Admin with update permission | Queues eligible retry; 202 and old claim invalidated. |
-| POST /api/v1/admin/incidents/{incident_id}/assign | Admin with assignment permission | AssignmentCreate; backend rechecks eligibility/resource compatibility. |
-| POST /api/v1/admin/incidents/{incident_id}/reassign | Admin with assignment permission | AssignmentCreate; requires active assignment. |
-| POST /api/v1/admin/incidents/{incident_id}/cancel | Admin with update permission | Cancels eligible incident and records state/audit events. |
-| POST /api/v1/admin/incidents/{incident_id}/resolve | Admin with update permission | Resolves eligible incident and creates deterministic report. |
-| GET /api/v1/admin/automation | Admin | Reads automatic-assignment policy. |
-| PUT /api/v1/admin/automation | Super Admin | AutomaticAssignmentPolicyUpdate; policy defaults disabled. |
-| GET /api/v1/admin/audit | Admin with audit permission | Optional limit; returns authorized audit events. |
+| `POST /user/incidents` | User | `IncidentCreate`: emergency type, description, location label/source, optional coordinates/accuracy/time, severity and urgency; requires `Idempotency-Key` (8–128 chars). First accepted request returns `201`; replay for the same reporter/key returns the stored incident (`200`). |
+| `GET /incidents` | Authenticated and scoped | Optional `status` and `query`. Admins need `view_incidents`; users see only their own reports; responders see assigned/visible work. |
+| `GET /incidents/{incident_id}` | Authenticated and scoped | Incident detail, including location provenance, status, priority, intake and permitted analysis. |
+| `GET /incidents/{incident_id}/updates` | Incident access | Persisted update history. |
+| `GET /incidents/{incident_id}/intake` | Incident access | Follow-up questions, answers and intake status. |
+| `POST /incidents/{incident_id}/intake/answers` | Reporter | `{ "answers": { ... } }`; saves bounded user-provided answers; `201`. |
+| `POST /incidents/{incident_id}/updates` | Authorized reporter/assigned responder per route policy | `message`, optional `original_message`, `ai_assisted`; `201`. |
+| `POST /responder/incidents/{incident_id}/rewrite` | Assigned responder | `note`; returns a checked draft and provider/fallback state without changing workflow state. |
+| `GET /incidents/{incident_id}/report` | Incident access | Resolution report and source records when available. |
+| `POST /admin/incidents/{incident_id}/report/review` | Admin with update permission | `note`; records the report review. |
+| `GET /changes` | Authenticated and scoped | Optional `after` timestamp; returns server time and changed, permitted incidents. |
+| `GET /notifications` | Authenticated | Current account's persistent in-app notifications. |
+| `PATCH /notifications/read-all` | Authenticated | Marks current account notifications read. |
+| `PATCH /notifications/{notification_id}/read` | Notification owner | Marks one notification read. |
 
-### Responder and change-feed routes
+### Dashboard and administration
 
-| Method and path | Access | Request / result |
+| Method and path | Access | Purpose / principal request fields |
 |---|---|---|
-| GET /api/v1/responder/profile | Responder | Current responder profile. |
-| PUT /api/v1/responder/location | Responder | ResponderLocation; stores timestamped location for recommendations. |
-| POST /api/v1/responder/incidents/{incident_id}/status | Assigned responder | StatusUpdate; only permitted forward states accepted. |
-| GET /api/v1/changes | Authenticated and permission-filtered | Optional after timestamp; authorized changes for client polling. |
+| `GET /admin/dashboard` | Admin with dashboard permission | Operational summary metrics. |
+| `GET /admin/analytics?days=...` | Admin with `view_reports` | Persisted descriptive aggregates for an allowed period; not forecasts. |
+| `POST /admin/copilot` | Admin with relevant read permissions | Fixed read-only question/intent; no arbitrary SQL or mutations. |
+| `GET /admin/responders` | Admin with dashboard/responder permission | Responder accounts and profiles. |
+| `POST /admin/invitations/responders` | Admin with `manage_responders` | `email`, `display_name`, `capabilities`; creates an invitation. |
+| `GET /admin/invitations` | Admin with `manage_responders` | Invitation status; does not expose stored token hashes. |
+| `POST /admin/invitations/{invitation_id}/revoke` | Admin with `manage_responders` | Revokes an invitation. |
+| `POST /admin/invitations/responders/{user_id}/resend` | Admin with `manage_responders` | Rotates/resends an eligible invite; rate-limited. |
+| `GET /admin/users?role=...` | Admin with applicable permission | Lists permitted accounts. |
+| `POST /admin/users` | Admin with `manage_users` | Creates a normal User account; responder creation uses invitations. |
+| `PATCH /admin/users/{user_id}/active?active=...` | Authorized account manager | Activates/deactivates eligible account; deactivation revokes sessions. |
+| `GET /admin/coadmins` | Super Admin | Lists scoped administrators. |
+| `POST /admin/coadmins` | Super Admin | Creates a Co-Admin with an explicit permission list. |
+| `PATCH /admin/coadmins/{user_id}/active` | Super Admin | Changes Co-Admin active state. |
+| `PATCH /admin/coadmins/{user_id}/permissions` | Super Admin | Updates scoped permissions. |
+| `PUT /admin/responders/{responder_id}/capabilities` | Admin with `manage_responders` | Replaces responder capability list. |
+| `PATCH /admin/responders/{responder_id}/availability` | Admin with `manage_responders` | Updates availability. |
+| `GET /admin/resources` | Admin with dashboard/resource permission | Lists resources and allocation summary. |
+| `POST /admin/resources` | Admin with `manage_resources` | Creates resource (`name`, `kind`, `quantity`). |
+| `PATCH /admin/resources/{resource_id}` | Admin with `manage_resources` | Updates resource and optional active state. |
+| `GET /admin/incidents/{incident_id}/recommendations` | Admin with incident-view access | Eligible responders/resources with deterministic reasons. |
+| `GET /admin/incidents/{incident_id}/duplicates` | Admin with incident-view access | Review-only possible duplicate candidates. |
+| `POST /admin/incidents/{incident_id}/analysis/retry` | Admin with update permission | Queues an eligible analysis retry; `202`. |
+| `POST /admin/incidents/{incident_id}/assign` | Admin with `assign_responders` | `responder_id`, optional `resource_id`; backend rechecks eligibility. |
+| `POST /admin/incidents/{incident_id}/reassign` | Admin with `assign_responders` | Changes active assignment subject to backend rules. |
+| `POST /admin/incidents/{incident_id}/cancel` | Admin with update permission | Cancels an eligible incident. |
+| `POST /admin/incidents/{incident_id}/resolve` | Admin with update permission | Resolves eligible incident and creates the current evidence-template report. |
+| `PUT /admin/automation` | Super Admin | `enabled`, `max_severity`; controls optional deterministic auto-assignment policy. |
+| `GET /admin/automation` | Admin | Reads policy. |
+| `GET /admin/audit?limit=...` | Admin with audit permission | Returns bounded administrative audit events. |
 
-Authentication failures use 401, role/permission failures 403, schema validation failures 422, and route-specific missing/conflict/rate-limit cases use route-defined statuses. OpenAPI is the source for exact payload details.
+### Responder and historical-data routes
 
-### Common request and response shapes
+| Method and path | Access | Purpose / request |
+|---|---|---|
+| `GET /responder/profile` | Responder | Own responder profile/assignment context. |
+| `PUT /responder/location` | Responder | Updates own coordinates, accuracy and capture time for recommendation use. |
+| `POST /responder/incidents/{incident_id}/status` | Assigned responder | `status` from the allowed next-state transition; backend verifies assignment ownership. |
+| `GET /admin/public-disaster-data` | Admin with `view_reports` | Separate historical datasets and source/provenance metadata, optionally range-filtered. |
+| `POST /admin/public-disaster-data/import` | Super Admin only | Multipart upload of the declarations ZIP and earthquake CSV; validates both and writes transactionally. |
 
-- **LoginResponse:** access_token, token_type, expires_at, optional refresh_token, session_expires_at, and a UserView containing id, email, display_name, role, and permissions.
-- **IncidentCreate:** emergency_type is one of Ambulance / Medical Emergency, Fire and Rescue, Police / Security, or Other Emergency; description is 3–2000 characters; location_label is 2–240; location_source is gps or manual; optional latitude/longitude must be supplied together and within geographic ranges; GPS requires a capture timestamp within the accepted freshness window; severity and urgency are 1–5.
-- **Incident view:** includes id/reference, reporter, category, description/location, severity/urgency, calculated priority/reason, status, current responder/resource fields, timestamps, and intake data. Analysis metadata/result is included only in authorized views, not in the reporting user's incident view.
-- **AssignmentCreate:** responder_id and optional resource_id. The server returns the updated incident view after transactional checks.
-- **StatusUpdate:** next status is one of Accepted, En Route, On Scene, or Resolved; actual transitions are checked against the assignment's current state.
-- **MessageCreate:** message is 1–1000 characters, with optional original_message and ai_assisted fields. **IntakeAnswers** accepts at most 12 answer entries; supported keys and value limits are enforced by the API.
-- **Account/resource/location models:** UserCreate and CoAdminCreate enforce valid email, 1–120 character display name, and 12–128 character password; ResourceCreate validates name, kind, and quantity; ResponderLocation validates coordinate/accuracy ranges and capture time.
-- **Other JSON results:** dashboard summary returns count fields; notification endpoints return recipient-scoped notification records; GET /api/v1/changes returns server_time and authorized incident views. Route-specific result shapes are visible in the generated OpenAPI document.
-
-FastAPI validation errors use a JSON detail field; validation detail may be a list of field errors. Domain errors use route-specific detail messages. Do not make clients depend on internal traceback text.
+Health endpoints are outside the API prefix: `GET /health/live` checks process liveness and `GET /health/ready` checks database connectivity. Common errors include `400` for invalid workflow input, `401` for missing/invalid sessions, `403` for insufficient role/permission, `404` for inaccessible/missing resources, `409` for conflicts, `422` for schema validation, and `429` for throttling. Exact response bodies/statuses are route-specific; `/docs` is authoritative for the running revision.
 
 ## Data model and migrations
 
-Important tables:
+Local development/tests use SQLite. `ENVIRONMENT=staging` and `production` require a PostgreSQL URL with the `postgresql+psycopg` driver. SQLAlchemy sessions are created per API request. Alembic is the schema-change mechanism; the app only calls `Base.metadata.create_all()` in development/test lifespan.
 
-| Table | Purpose |
+### Main tables
+
+| Tables | Relationship / purpose |
 |---|---|
-| users | Accounts, role, permissions, active state, Argon2 password hash |
-| responders | Capabilities, availability, optional timestamped responder location |
-| incidents | Reporter, report/location fields, severity/urgency, priority, status, idempotency key |
-| incident_analyses | One durable analysis state per incident, result/validation metadata, attempts, timestamps, current claim token |
-| assignments | Incident/responder/resource assignment, state, source, timestamps |
-| incident_updates | Submission and responder/user updates, original/final note, AI-assisted marker |
-| account_invitations | Hashed single-use tokens and lifecycle timestamps |
-| resources | Inventory quantity, allocation, active state |
-| notifications | Recipient-scoped in-app events with unique per-recipient event key |
-| coordination_policy | Automatic-assignment flag and severity ceiling |
-| incident_reports | Versioned deterministic reports and review metadata |
-| audit_events | Actor, action, entity, structured audit details |
-| auth_sessions | JWT session identifiers, refresh-token hash, expiry, revocation |
+| `users`, `auth_sessions`, `login_attempt_buckets` | Accounts, persisted/revocable login sessions, and privacy-preserving hashed login throttle buckets. |
+| `responders` | One-to-one profile keyed by `users.id`; capabilities, availability, and optional location metadata. |
+| `account_invitations` | Responder invite token hash, expiry, acceptance and revocation state. |
+| `incidents` | Reporter-owned submitted incidents; unique reference and unique `(reporter_id, idempotency_key)`, validated coordinates and status/priority. |
+| `incident_analyses` | One durable analysis row per incident, with provider/result state, attempt metadata and claim ownership token. |
+| `incident_updates`, `incident_reports` | Incident history and versioned resolution report/review metadata. |
+| `assignments` | Links incident to responder and optional resource; active assignment constraints prevent conflicting assignments. |
+| `resources` | Resource inventory and allocation state. |
+| `notifications` | User-owned in-app events, optionally linked to an incident, with unique event key per user and read time. |
+| `coordination_policy`, `audit_events` | Automatic-assignment policy and administrative audit history. |
+| `public_earthquakes`, `public_fema_declarations`, `public_dataset_syncs` | Historical source records and import/sync provenance, isolated from operational workflows. |
 
-Foreign keys and database constraints enforce key ownership links, severity/coordinate ranges, idempotency uniqueness per reporter, unique resource names, one active assignment per responder, and unique notification event keys. The Alembic chain starts with the shared coordination schema and adds sessions, analysis, permissions, invitations, notifications/automation, durable recovery, conversational intake/reports, and claim ownership.
+```mermaid
+erDiagram
+  USERS ||--o{ INCIDENTS : reports
+  USERS ||--o| RESPONDERS : has_profile
+  USERS ||--o{ AUTH_SESSIONS : owns
+  USERS ||--o{ ACCOUNT_INVITATIONS : receives
+  INCIDENTS ||--o| INCIDENT_ANALYSES : analyzed_as
+  INCIDENTS ||--o{ INCIDENT_UPDATES : has_history
+  INCIDENTS ||--o{ INCIDENT_REPORTS : has_reports
+  INCIDENTS ||--o{ ASSIGNMENTS : receives
+  USERS ||--o{ ASSIGNMENTS : responds
+  RESOURCES ||--o{ ASSIGNMENTS : allocated_to
+  USERS ||--o{ NOTIFICATIONS : receives
+  INCIDENTS ||--o{ NOTIFICATIONS : relates_to
+  USERS ||--o{ AUDIT_EVENTS : acts
+  PUBLIC_EARTHQUAKES {
+    string source_id PK
+    string source_key
+    datetime event_time
+  }
+  PUBLIC_FEMA_DECLARATIONS {
+    string source_id PK
+    string source_key
+    int disaster_number
+    string state
+  }
+  PUBLIC_DATASET_SYNCS {
+    string source PK
+    datetime last_success_at
+    string provenance
+  }
+```
 
-The checked-in linear revisions are de28b59bc889 (initial schema), 78f7c901c52a (remembered-session refresh), 1bcb3409a6a1 (incident intelligence), 5fa2c57e31c0 (admin permissions), a40b1331ee91 (account invitations), b271c7e05d3a (notifications/automatic assignment), 9ce4b8b2241a (durable analysis recovery), c2a71d0e48bf (conversational intake/reports), and 4e5b0b6a92d1 (claim ownership).
+Historical tables intentionally have no relationship to operational `incidents` or `assignments`. The latest migration identifier in this checkout is `f4a2d610c981`; a particular database's actual revision must be checked rather than assumed.
 
-For online PostgreSQL migrations, a dedicated transaction-scoped advisory lock is acquired on the migration connection before revision discovery and execution. It serializes migration transactions only; it does not drain old app processes or make mixed-version queue processing safe. The latest migration adds nullable incident_analyses.claim_token; downgrade removes it and is not a substitute for rolling back application code.
+The explicit provider synchronization command is separate from CSV upload and is never run automatically. After verifying the target database and applying its migrations, the documented operator command from `backend/` is `python -m app.sync_public_datasets --confirm-public-sync`. It uses bounded date/row defaults and source timeouts/retries; see the [public-data guide](docs/architecture/public-disaster-data.md) before selecting bounds or a database. The upload API is available from the Super Admin-only Historical/Public Data screen and requires both files together. Input sizes, archive layout, row caps, and row-level rejection behavior are specified in that guide.
 
-See [backup and recovery](docs/operations/backup-and-recovery.md) for procedures and stop conditions. Never restore over an unidentified or only known database.
+From `backend/` with the intended database selected:
 
-## End-to-end workflows
+```sh
+alembic current
+alembic history
+alembic upgrade head
+```
 
-### Manual assignment
+Never run an upgrade against an unknown, drifted, shared, staging, or production database merely to test setup. First verify ownership, actual schema, current revision, backups, and the complete migration chain. Do not use `alembic stamp` to mask schema drift.
 
-1. An Admin opens a stored incident and its recommendation list.
-2. The server filters active, available, capable responders without active assignments. Distance is used only when both location readings are at most 100 m accuracy and no older than 15 minutes.
-3. The Admin submits an explicit assignment request.
-4. The backend rechecks incident state, responder eligibility, resource compatibility, and uniqueness in a transaction.
-5. Assignment, incident status/history, audit event, notifications, responder availability, and resource allocation commit together. Conflicts do not erase the incident.
+## Authentication and security
 
-### Automatic assignment
+- Passwords are hashed using Argon2 through `pwdlib`; plaintext passwords are not stored.
+- Access tokens are HS256 JWTs, short-lived by default (30 minutes), and checked against a server-side `auth_sessions` row, current account status, and role.
+- Remember Me is optional. Refresh tokens are random, persisted only as hashes, rotated during refresh, and bounded by `REMEMBER_ME_DAYS`.
+- Logout revokes the active server-side session. React uses tab-scoped `sessionStorage`; Flutter uses secure storage for remembered sessions.
+- Public registration can create only a normal User. The initial Super Admin is provisioned explicitly. Responder access is invitation-based.
+- Scoped Co-Admin permissions are checked by backend dependencies on each route. Incident ownership is enforced for User and Responder views.
+- Production/staging settings require PostgreSQL, a sufficiently long JWT secret, HTTPS CORS origins and HTTPS `PUBLIC_APP_URL`. The React production build and Flutter release client require a real HTTPS API origin.
+- CORS is origin-based and does not allow credentials in the current FastAPI middleware. Configure exact website origins, not wildcards.
+- Provider credentials and SMTP credentials belong only in backend secret storage. Vite variables are public and bundled; never prefix a secret with `VITE_`.
+- The optional provider may receive incident description and configured context. It is disabled by default. Never enable it with real emergency/personal data for this demo.
 
-A Super Admin must enable the policy and set a severity ceiling. Intake attempts assignment only when severity, fresh accurate incident/responder location, capability, active account, availability, workload, and resource checks pass. A missing match leaves the incident for review. Model output is never an assignment input.
+These are implementation controls, not a security certification. Hosting topology, production operations, backups/restoration, monitoring, external mail, provider behavior and full production security review are not verified. Invitation throttling and AI call limiting are process-local, not distributed across replicas.
 
-### Responder status and resolution
+## Testing and quality checks
 
-The assigned responder submits a valid next status. The API persists status, history, audit, and in-app notification state. Resolution creates a versioned evidence-template report that references records and limitations; it does not infer cause.
+Commands configured in package files and GitHub Actions:
 
-### Invitation
+```sh
+# Backend (from backend/; tests use isolated SQLite fixtures by default)
+ENVIRONMENT=test JWT_SECRET=ci-only-secret-that-is-at-least-thirty-two-characters \
+  python -m pytest -q
 
-An Admin creates an invitation. The API stores a hash of a random one-use token with expiry/revocation state. Configured SMTP attempts delivery; development without SMTP can return an activation link to the authenticated administrator. Production treats missing or failed delivery as failure. Invitation throttling is process-local.
+# React (from repository root)
+npm ci --prefix web/react-dashboard
+npm test --prefix web/react-dashboard
 
-## Testing and validation
+# Compile and bundle React for CI only without a production origin
+VITE_ECS_ALLOW_UNCONFIGURED_BUILD=true npm run build --prefix web/react-dashboard
 
-### Backend
-
-Run from backend/ in a local Python environment:
-
-~~~sh
-AI_PROVIDER=none OPENROUTER_API_KEY= SMTP_HOST= SMTP_USERNAME= SMTP_PASSWORD= SMTP_FROM= ECS_POSTGRES_TEST_MODE=0 python -m pytest -q -p no:cacheprovider tests
-~~~
-
-The test conftest sets provider-off before application imports and forces ordinary tests to in-memory SQLite. PostgreSQL tests are skipped unless explicit opt-in validation passes. SMTP variables above are blank so tests cannot deliver invitations.
-
-Focused suites:
-
-~~~sh
-python -m pytest -q tests/test_workflow.py tests/test_analysis_queue.py
-python -m pytest -q tests/test_analysis_retry_authorization.py tests/test_analysis_worker_lifecycle.py
-python -m pytest -q tests/test_intelligence.py tests/test_conversational_features.py
-~~~
-
-### PostgreSQL-specific tests
-
-Do not run these against production, shared, local Compose, or runtime databases. They require a separately approved disposable PostgreSQL 17 target and all fail-closed environment variables above. The fixture smoke test makes a read-only connection; migration/concurrency tests deliberately downgrade/upgrade schema and inject a test DDL fault. The fixture does not create or drop a database. Run only after target validation and separate authorization.
-
-### Flutter and static-site tests
-
-~~~sh
+# Flutter (from repository root)
 flutter pub get
 dart format --output=none --set-exit-if-changed lib test
 flutter analyze
-flutter test test/api_client_test.dart test/api_configuration_test.dart test/dispatch_rules_test.dart test/operations_store_test.dart test/widget_test.dart
-node --test web/admin/analytics.test.cjs
-node --check web/admin/app.js
-node --check scripts/build_web_config.mjs
-npm test --prefix web/react-dashboard
-VITE_ECS_API_ORIGIN=https://your-real-api-host.tld npm run build --prefix web/react-dashboard
-~~~
+flutter test test/api_client_test.dart test/api_configuration_test.dart \
+  test/dispatch_rules_test.dart test/operations_store_test.dart test/widget_test.dart
+flutter build web --no-pub
+```
 
-The test framework uses provider/HTTP mocks or blocks outbound HTTP in widget tests. Do not configure a live provider or SMTP to run the offline suite.
+The CI web build explicitly sets `VITE_ECS_ALLOW_UNCONFIGURED_BUILD=true`; this is a compile-only exception, not a deployment configuration. A normal production Vite build must receive the real HTTPS `VITE_ECS_API_ORIGIN` and rejects missing, invalid, placeholder or non-HTTPS values. Do not invent a URL to make the build green.
 
-### Latest local verification in this workspace
+PostgreSQL-specific tests are opt-in and guarded by `backend/postgres_test_safety.py`. Some change/drop schema; run them only with an explicitly approved disposable PostgreSQL target configured with all required `ECS_POSTGRES_TEST_*` variables. Do not use local staging, hosted staging, or production.
 
-On 2026-10-25:
+No tests or builds were run while this README was rewritten. Consult CI for current results; historical counts are deliberately not embedded here.
 
-- Provider-off backend suite including ordinary SQLite tests and default PostgreSQL skips: **117 passed, 11 skipped, 1 Starlette/httpx deprecation warning**.
-- Flutter tests: **31 passed**.
-- Flutter analysis: **no issues**.
-- Flutter web compilation: **succeeded**, with a non-fatal Cupertino icon font warning.
-- Static dashboard analytics tests: **7 passed**.
-- Git whitespace validation: **passed**.
+## Deployment
 
-The Dart formatter could not run because the Flutter SDK attempted a cache write outside the repository and the environment denied it. PostgreSQL tests were not run in the latest verification. Earlier PostgreSQL 17.11 tests and one live adapter-level completion are described in the audit; neither is a current deployment check. There is no verified public URL.
+### Intended topology and current status
 
-Phase 60 targeted checks later passed: backend login/auth/config regressions **22 passed** (one Starlette/httpx warning), Flutter API configuration **3 passed**, dashboard analytics/deployment checks **9 passed**, Flutter analysis clean, and Flutter web build succeeded. The build output was confirmed under `build/web/`; no database migration or browser/runtime test was run. The Dart formatter remains blocked by the SDK cache permission error.
+| Service | Intended configuration | Current verification |
+|---|---|---|
+| React dashboard | Vercel project rooted at `web/react-dashboard`; `npm ci`, `npm run build`, output `dist`. | Config files exist; no Vercel project or live deployment verified. Production build needs the real backend HTTPS origin. |
+| FastAPI API | Render Docker web service using `backend/Dockerfile`, `backend/start.sh`, `/health/ready`. | Blueprint exists; no Render service/live URL verified. |
+| PostgreSQL | Separate persistent PostgreSQL provider/database; hosting notes discuss Supabase as a possible target. | No hosted database is connected or migrated. Local Compose is a separate persistent named-volume target. |
+| AI | Provider-off by default (`AI_PROVIDER=none`). Optional OpenRouter/Gemma server-side configuration. | No hosted key or live provider request verified. |
 
-## Security, privacy, and safety
+### Vercel website
 
-- Use synthetic demo accounts/incidents only. Do not include real incident information or precise real locations.
-- Never store secrets in Git, Flutter defines, static assets, browser storage, command output, or issue reports.
-- Keep the OpenRouter key server-side. A key alone does not select a provider.
-- If AI is enabled, report text is sent to the selected provider. The location label is omitted unless AI_SHARE_INCIDENT_LOCATION is true; coordinates are not sent.
-- Keep SMTP unset to prevent invitation email. In-app notification records are not proof of external delivery.
-- Keep PostgreSQL private. Do not publish port 5432 or attach an unidentified Compose volume.
-- Set CORS_ORIGINS to exact browser origins. Development defaults are localhost origins.
-- Android release builds require HTTPS. Debug builds permit only loopback, RFC1918 IPv4, and IPv6 unique-local HTTP API origins; that traffic is unencrypted and still requires an approved, restricted demo network and firewall policy.
-- Login attempts are limited to 10 per 15-minute window per normalized email identifier, stored as a keyed HMAC digest in the shared application database. This is shared across API processes using that database; PostgreSQL concurrency still requires staging verification. Invitation and AI-provider limits remain process-local. MFA, account recovery, push delivery, and production operational monitoring are absent.
-- Do not enable prototype assignment rules for real-world incidents.
-- Logs and audit rows may contain sensitive operational metadata; provider error logs intentionally omit request/response content and credentials.
+Both root `vercel.json` and `web/react-dashboard/vercel.json` are present. For the documented Vercel project Root Directory `web/react-dashboard`, use the configuration and paths relative to that project root: install `npm ci`, build `npm run build`, output `dist`. The app config rewrites `/admin`, `/admin/`, `/admin/:path*`, `/activate`, and `/activate.html` to the SPA entry. `/` is served by the built `index.html`.
+
+Set `VITE_ECS_API_ORIGIN` to the **actual** HTTPS API origin in the Vercel project environment. It is public browser configuration. Do not set `VITE_ECS_ALLOW_UNCONFIGURED_BUILD` in Vercel. Vite copies the shared logo from `web/assets/`; with the project rooted in `web/react-dashboard`, enable Vercel's **Include source files outside of the Root Directory** option so the sibling assets directory is available. Verify the deployed routes and logo after deployment.
+
+### Render API and database
+
+`render.yaml` defines a Docker web service on the `main` branch, health path `/health/ready`, auto-deploy after checks, `ENVIRONMENT=production`, and `AI_PROVIDER=none`. It expects `DATABASE_URL`, `CORS_ORIGINS` and `PUBLIC_APP_URL` to be entered as provider values; `JWT_SECRET` is generated by Render. The `render.yaml` command invokes `sh ./start.sh`. That script runs bounded-retry `alembic upgrade head` before Uvicorn and refuses to start after migration failure. The generic Dockerfile `CMD` by itself starts Uvicorn directly; deployments relying on migration-first startup must use the configured `start.sh` command.
+
+Production environment requirements:
+
+- `DATABASE_URL`: protected PostgreSQL SQLAlchemy URL using `postgresql+psycopg://`; never expose or commit it.
+- `JWT_SECRET`: generated/protected backend secret.
+- `CORS_ORIGINS`: exact Vercel site origin(s), HTTPS.
+- `PUBLIC_APP_URL`: canonical HTTPS Vercel origin used for responder invitations.
+- `ENVIRONMENT=production`; `AI_PROVIDER=none` until provider enablement is explicitly authorized.
+
+Deploy order and validation depend on real provider URLs and account setup. See [hosting operations](docs/operations/hosting.md) and [backup/recovery](docs/operations/backup-and-recovery.md). Free tiers may sleep, pause, impose database quotas, or lack managed backups; read the current provider terms and keep synthetic data only. No payment method, paid resource, provider project, hosted migration, or deployment is authorized or verified by this repository documentation.
+
+After deployment, verify `/health/live`, `/health/ready`, database migration revision, CORS preflight from the real Vercel origin, administrator sign-in, responder activation URL, one uniquely identified synthetic incident from mobile to dashboard, restart persistence, logs without credentials/personal data, and backup/restore process. Keep `PUBLIC_APP_URL`, Vercel API origin, and backend CORS origins consistent.
 
 ## Troubleshooting
 
-| Symptom | Likely source-backed cause | Safe next step |
-|---|---|---|
-| API refuses to start outside tests | JWT_SECRET missing/short or production settings invalid | Check presence and length without printing its value; verify production database URL and HTTPS origins. |
-| Alembic reports existing local SQLite tables | A development startup may have used SQLAlchemy create_all without an Alembic revision | Stop and preserve the database; compare its schema before any stamp/migration. Use a separate SQLite file if uncertain. |
-| Dashboard cannot reach the API | API stopped, incorrect entered origin, or CORS does not include the exact browser origin | Confirm local service state and URL; do not open LAN ports to solve a local URL issue. |
-| Flutter reports API_BASE_URL empty/invalid | API origin was not supplied at build time | Rebuild with intended origin; debug HTTP is loopback/emulator-only and release requires HTTPS. |
-| Analysis remains pending/unavailable | Worker/database problem, stale attempts exhausted, provider failure, or invalid model output | Review persisted status/safe failure category; use authorized Admin retry only for eligible records. |
-| Migration tests begin contacting a DB | PostgreSQL opt-in was enabled or misconfigured | Stop. Ordinary tests must set ECS_POSTGRES_TEST_MODE=0; never substitute another target. |
-| Generated demo login is lost | Seed passwords print once on first creation; stored hashes are irreversible | Do not attempt to recover a password from its hash. Use only an approved isolated development database and supported account workflow. |
+| Symptom | Checks |
+|---|---|
+| React says service unavailable or login cannot connect | Confirm `VITE_ECS_API_ORIGIN` is present and valid; use a real HTTPS origin for hosted builds. Locally, check API `/health/live`, Vite environment file location, and restart Vite after changing it. |
+| Flutter cannot reach API | Verify `API_BASE_URL` compile-time define and `/health/live`. On a physical phone, loopback means the phone; use USB `adb reverse` or an intentionally configured private-network debug URL. Do not use HTTP for a release build. |
+| CORS error in browser | Set backend `CORS_ORIGINS` to the exact browser origin including scheme and port; do not add a path. Then restart/redeploy the API. CORS does not fix an incorrect API URL. |
+| Login/registration fails | Check the API response status, account role/active state, password length, login throttle, and whether Flutter/React use the same backend. Do not reset credentials or alter accounts without verifying the database target. |
+| Incident missing in React | Confirm Flutter's successful POST response and returned ID, the same backend origin/database, authorized `/api/v1/incidents` response, `view_incidents` permission, and cleared search/status/priority/category filters. The React dashboard refreshes supported views every 12 seconds while visible; use its retry or navigate back to the page. Check details for intake/report state. |
+| Migration says tables already exist or revisions mismatch | Stop. Inspect `DATABASE_URL`, `alembic current/history`, actual schema, and database provenance. Do not delete a DB, stamp blindly, or downgrade data. See [backup/recovery](docs/operations/backup-and-recovery.md). |
+| Vercel cannot find shared brand assets | Confirm Root Directory is `web/react-dashboard` and enable inclusion of source files outside the root so `web/assets/` is available. Use app-root build settings in `web/react-dashboard/vercel.json`. |
+| Vercel production build rejects API URL | Enter the actual HTTPS API origin in `VITE_ECS_API_ORIGIN`; remove placeholders, credentials, path, query, or fragment. Never bypass the guard for deployment. |
+| Responder invitation is not delivered | SMTP is optional and no provider is guaranteed. Check backend SMTP configuration and deployment provider port restrictions; for local development, use the supported activation-link handoff. Do not put invitation tokens in logs or screenshots. |
+| `flutter doctor` reports missing Android tooling | Install Android Studio/SDK and Platform Tools, accept SDK licenses, verify `adb devices`, then rerun `flutter doctor -v`. Web/desktop targets do not replace Android requirements. |
 
-## Contribution workflow
+## Development workflow
 
-1. Confirm repository path and branch before editing.
-2. Inspect Git status and current diffs; preserve unrelated work.
-3. Make a focused source change and add a regression at the appropriate boundary.
-4. Add a new Alembic revision for schema changes; never edit an applied revision.
-5. Run provider-off SQLite tests, client tests, static checks, and git diff --check as relevant.
-6. Review the full staged diff. Never stage all files blindly or include .env, virtual environments, build output, datasets, or credentials.
-7. Commit only after review; push only to the verified repository and branch.
+No separate contribution policy file was found. A safe general workflow is:
 
-## Deployment and operations
+1. Create a focused branch from the intended base and inspect `git status` before editing.
+2. Preserve unrelated working-tree changes. Review `git diff` and stage only files belonging to the change.
+3. For schema changes, add a reviewed Alembic migration and tests. Validate upgrades/downgrades against disposable databases; never run test fixtures or downgrade against staging/production.
+4. Run the relevant backend, React, Flutter, formatting, analysis and build checks listed above. Report checks actually run.
+5. Do not commit `.env` files, database files, generated builds, account credentials, provider keys, keystores, tokens, or real personal/incident data.
+6. Use synthetic data, document limitations, and avoid calling external paid services in tests.
 
-### Checked-in configuration
+When reporting a defect, include client/platform, route/screen, expected and observed behavior, non-sensitive logs/status codes, and reproducible synthetic steps. Redact bearer tokens, passwords, email where unnecessary, locations, and incident content.
 
-- **Render:** render.yaml defines one Docker web service named emergency-coordination-api with plan free, startup through backend/start.sh, automatic deploy after checks, and /health/ready health check. It does not define a PostgreSQL resource.
-- **Startup:** backend/start.sh runs alembic upgrade head with up to five attempts before Uvicorn binds 0.0.0.0 and PORT (default 8000). Every service start runs migrations. The advisory lock serializes PostgreSQL migration transactions but does not coordinate application-version overlap.
-- **Docker:** backend/Dockerfile uses Python 3.12 slim. Its default command starts Uvicorn directly; it does not run start.sh unless deployment configuration selects it. Local Compose API host binding is 127.0.0.1:8000; the database has no published host port.
-- **Static site:** vercel.json publishes `web/`; its root and `/admin` routes resolve to the static coordinator dashboard, and `/activate` resolves to the activation page. `scripts/build_web_config.mjs` requires a real HTTPS `ECS_API_BASE_URL` for the configured deployment build. The isolated React dashboard has its own Vercel staging project instructions in `web/react-dashboard/README.md`. The Flutter web artifact is separate under `build/web/`.
-- **CI/CD:** .github/workflows/quality.yml runs backend, Flutter, static-web, and isolated React dashboard checks/build. The signed Android release job requires protected repository variables/secrets and is gated on them.
+## Roadmap and known limitations
 
-These are templates/configuration, not proof of hosted resources. The hosting guide proposes Vercel/Render/Supabase, but this repository contains no verified connected project, database, public URL, or current hosting cost.
+These are gaps and deferred work identified by the checked-in implementation/operations notes, not a promise that work is scheduled:
 
-### Release controls
+- No live provider deployment, verified hosted database, public dashboard URL, or production API origin is currently established.
+- Local multi-device use requires separately reviewed network exposure, database-volume ownership, and backup/restore evidence.
+- No real emergency-agency integration, emergency calling, public dispatch, SMS, FCM/device push, or notification delivery tracking is implemented.
+- Public dataset refresh is operator-triggered; historical datasets are capped and not comprehensive/current incident feeds.
+- OpenRouter requests, cost controls and hosted incident-analysis lifecycle have not been live-verified. The provider is disabled by default.
+- AI and invitation rate controls are process-local; horizontal scaling/worker coordination requires deployment review.
+- Production backup, restoration, monitoring, service-level objectives, migration rollout and rollback have not been demonstrated.
+- The repository includes an older debug-signed APK; it is not a verified release artifact and does not prove a deployable mobile release configuration.
 
-Before deployment, operators must verify hosting/database ownership and cost, backup/restore, secrets, CORS, replica/process count, worker topology, and monitoring. Drain incompatible old application/worker versions before schema changes; start only compatible code after migration succeeds. Do not downgrade the schema while newer code may use claim_token. Application rollback and database downgrade are separate decisions. See the [integration audit](docs/GEMMA_INTEGRATION_AUDIT.md) and [hosting guide](docs/operations/hosting.md).
+The current operational status and unresolved release evidence are tracked in [the hosting guide](docs/operations/hosting.md), [Gemma integration audit](docs/GEMMA_INTEGRATION_AUDIT.md), and [release readiness audit](docs/audit/release-readiness-2026-10-24.md).
 
-## Limitations and deferred work
+## License and acknowledgements
 
-- Prototype only; not an operational emergency response service.
-- No emergency-agency integration, public safety call, FCM/mobile push, or responder SMS.
-- Hosted worker lifecycle, hosting-platform PostgreSQL behavior, replica coordination, backup restoration, and deployment drain/rollback remain unverified.
-- Old and new application versions must not process queue work together; older code does not enforce current claim-token ownership.
-- Duplicate provider calls remain possible across crash/recovery/retry.
-- Production reset/recovery policy and service-level objectives are not approved.
-- Local multi-phone demo remains blocked by volume/backup evidence, network/firewall scope, and separate runtime/service-start authorization.
-- Cloud staging is not authorized; production is NO-GO.
+No `LICENSE` file was found in the repository. No license is asserted here; obtain authorization before redistributing or reusing the project. The app uses third-party packages listed in `pubspec.yaml` and `web/react-dashboard/package-lock.json`, plus FastAPI/Python packages in `backend/requirements*.txt`; consult those projects' licenses. Historical source attribution and usage limits are documented in [the public-data guide](docs/architecture/public-disaster-data.md). The system is not endorsed by USGS, FEMA, or OpenRouter.
 
 ## Further documentation
 
-- [Backend setup and API notes](backend/README.md)
-- [Architecture decisions](docs/audit/architecture.md)
-- [Requirements and traceability](docs/requirements/traceability-matrix.md)
-- [Demo seed accounts](docs/DEMO_ACCOUNTS.md)
-- [UI design system](docs/DESIGN_SYSTEM.md)
-- [UI/UX audit](docs/UX_UI_AUDIT.md)
-- [Backup and recovery](docs/operations/backup-and-recovery.md)
+- [Backend setup and notes](backend/README.md)
+- [Frontend migration and route behavior](docs/architecture/frontend-migration.md)
+- [Public historical datasets and CSV import](docs/architecture/public-disaster-data.md)
 - [Hosting and release checklist](docs/operations/hosting.md)
-- [CI/CD audit](docs/CI_CD_AUDIT.md)
-- [Gemma integration and release audit](docs/GEMMA_INTEGRATION_AUDIT.md)
+- [Database backup and recovery](docs/operations/backup-and-recovery.md)
+- [CI/CD workflow audit](docs/CI_CD_AUDIT.md)
+- [Requirements and traceability matrix](docs/requirements/traceability-matrix.md)
+- [Architecture audit](docs/audit/architecture.md)
+- [UI design system](docs/DESIGN_SYSTEM.md)
+- [UX/UI audit](docs/UX_UI_AUDIT.md)
+- [AI/Gemma integration audit](docs/GEMMA_INTEGRATION_AUDIT.md)
+- [Synthetic demo seed notes](docs/DEMO_ACCOUNTS.md)

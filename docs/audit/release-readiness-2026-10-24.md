@@ -1,5 +1,7 @@
 # Release-readiness engineering report
 
+> Historical record from before the React website migration. Static-dashboard paths and test results refer to the implementation at the time; see [the current website migration record](../architecture/frontend-migration.md).
+
 Date: 2026-10-24. Scope: repository and local development environment only. No production system was accessed, modified, or deployed. The checkout contained pre-existing uncommitted changes before this follow-up; they were preserved.
 
 ## 1. Executive summary

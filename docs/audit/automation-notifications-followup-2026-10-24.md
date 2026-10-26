@@ -1,5 +1,7 @@
 # Automatic coordination and notifications follow-up
 
+> Historical record from before the React website migration. Static-dashboard paths and test results refer to the implementation at the time; see [the current website migration record](../architecture/frontend-migration.md).
+
 Date: 2026-10-24
 
 This is an academic demonstration project. Nothing in this report indicates contact with a real emergency service or authorization for operational dispatch.

@@ -3,6 +3,8 @@
 **Review date:** 2026-10-24
 **Status:** Source review and automated checks; no physical-device or full screen-reader audit.
 
+> Historical audit snapshot from before the React website migration. References to `web/admin/` and the static activation page describe the implementation at the review date; the current website architecture and migrated features are documented in [the frontend migration record](architecture/frontend-migration.md).
+
 ## Verified architecture and capabilities
 
 - Flutter Android client: `lib/main.dart`, `lib/presentation/portals.dart`, and `lib/presentation/home_page.dart`.

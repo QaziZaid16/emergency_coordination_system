@@ -1,5 +1,7 @@
 # CI/CD status
 
+> Historical audit snapshot from before the React website migration. The current workflow and deployment target are described in [hosting operations](operations/hosting.md) and [the frontend migration record](architecture/frontend-migration.md).
+
 ## Repository workflows
 
 `.github/workflows/quality.yml` runs on pull requests, pushes to `main`, `v*` tags, and manual dispatch. It grants read-only repository permission by default and checks:

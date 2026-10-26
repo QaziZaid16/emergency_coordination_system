@@ -1,5 +1,7 @@
 # Verification record
 
+> Historical record from before the React website migration. Static-dashboard paths and test results refer to the implementation at the time; see [the current website migration record](../architecture/frontend-migration.md).
+
 ## Current implementation
 
 - Baseline before this audit: `flutter analyze` clean; 8 Flutter tests passed.

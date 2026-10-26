@@ -1,5 +1,7 @@
 # Login and hosting implementation audit
 
+> Historical record from before the React website migration. Static-dashboard paths and test results refer to the implementation at the time; see [the current website migration record](../architecture/frontend-migration.md).
+
 Audit date: 2026-10-24. Repository-only review; no physical device, hosted service, DNS, or production database was accessed.
 
 ## Verified baseline before these changes

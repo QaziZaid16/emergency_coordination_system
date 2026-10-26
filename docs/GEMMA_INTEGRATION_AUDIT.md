@@ -1,6 +1,8 @@
 # Gemma 4 / OpenRouter integration audit
 
 **Audit date:** 2026-10-25
+
+> Historical audit snapshot from before the React website migration. Its static-dashboard filenames, API-origin variable, and deployment statements describe the prior state only. The current site and route configuration are documented in [the frontend migration record](architecture/frontend-migration.md) and [hosting operations](operations/hosting.md).
 **Scope:** checked-out source, current local backend configuration, focused automated tests, and public OpenRouter catalog information. This is a source and development-environment audit, not a production certification.
 
 ## Local diagnosis of the controlled connection failure (2026-10-25)
