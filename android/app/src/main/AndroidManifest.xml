@@ -4,7 +4,7 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <application
         android:usesCleartextTraffic="${usesCleartextTraffic}"
-        android:label="Emergency Coordination System"
+        android:label="IERCS"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round">
