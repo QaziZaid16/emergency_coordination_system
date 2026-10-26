@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -174,6 +175,63 @@ void main() {
         ),
       );
     });
+
+    test('distinguishes request timeouts from connection failures', () async {
+      final client = ApiClient(
+        baseUrl: 'https://api.example.test',
+        storage: MemorySessionStorage(),
+        client: MockClient((_) async => throw TimeoutException('timed out')),
+      );
+
+      await expectLater(
+        client.registerUser(
+          'Sample User',
+          'sample@example.org',
+          'Synthetic-Password-1234',
+          rememberMe: false,
+        ),
+        throwsA(
+          isA<ApiException>()
+              .having((error) => error.statusCode, 'status', isNull)
+              .having(
+                (error) => error.message,
+                'message',
+                contains('request timed out'),
+              ),
+        ),
+      );
+    });
+
+    test(
+      'keeps a clear connectivity message for connection failures',
+      () async {
+        final client = ApiClient(
+          baseUrl: 'https://api.example.test',
+          storage: MemorySessionStorage(),
+          client: MockClient(
+            (_) async => throw const SocketException('offline'),
+          ),
+        );
+
+        await expectLater(
+          client.registerUser(
+            'Sample User',
+            'sample@example.org',
+            'Synthetic-Password-1234',
+            rememberMe: false,
+          ),
+          throwsA(
+            isA<ApiException>()
+                .having((error) => error.statusCode, 'status', isNull)
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains('Could not reach the coordination service'),
+                ),
+          ),
+        );
+      },
+    );
   });
 
   group('remembered sessions', () {

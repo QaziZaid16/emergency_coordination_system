@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -475,6 +476,10 @@ class ApiClient {
       throw ApiException(message, statusCode: response.statusCode);
     } on ApiException {
       rethrow;
+    } on TimeoutException {
+      throw const ApiException(
+        'The coordination service request timed out. Check your connection and retry.',
+      );
     } catch (_) {
       throw const ApiException(
         'Could not reach the coordination service. Check your connection and retry.',
